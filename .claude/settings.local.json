@@ -6,7 +6,8 @@
       "Bash(pnpm install *)",
       "Bash(pnpm --filter @covergeist/shared build)",
       "Bash(pnpm --filter covergeist build)",
-      "Bash(pnpm *)"
+      "Bash(pnpm *)",
+      "Bash(DATABASE_URL=postgresql://placeholder pnpm db:generate)"
     ]
   }
 }

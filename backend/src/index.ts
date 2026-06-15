@@ -1,16 +1,28 @@
+import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
+import { quotaRoutes } from './routes/quota';
+import { subscriptionRoutes } from './routes/subscription';
 
-const server = Fastify({ logger: true });
+async function buildServer() {
+  const server = Fastify({ logger: true });
 
-server.get('/health', async () => {
-  return { status: 'ok' };
-});
+  await server.register(cors, { origin: false });
+  await server.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+
+  server.get('/health', async () => ({ status: 'ok' }));
+
+  await server.register(subscriptionRoutes);
+  await server.register(quotaRoutes);
+
+  return server;
+}
 
 const port = Number(process.env.PORT) || 3000;
 
-server.listen({ port, host: '0.0.0.0' }, (err) => {
-  if (err) {
-    server.log.error(err);
+buildServer()
+  .then(server => server.listen({ port, host: '0.0.0.0' }))
+  .catch(err => {
+    console.error(err);
     process.exit(1);
-  }
-});
+  });

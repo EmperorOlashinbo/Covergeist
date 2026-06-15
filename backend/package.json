@@ -7,14 +7,22 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@covergeist/shared": "workspace:*",
-    "fastify": "^4.28.1"
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^11.0.0",
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^4.28.1",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.4.5"
   }
 }

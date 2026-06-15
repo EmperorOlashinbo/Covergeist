@@ -221,7 +221,7 @@ So that I can assess my project's overall coverage health at a glance.
 
 A developer can sign in to Covergeist via browser, have their session persist across restarts, see their remaining generation quota in VS Code, open the billing page to upgrade, and have the extension automatically reflect subscription status changes without restarting.
 
-### Story 2.1: Backend Scaffold, Auth Middleware & Subscription Routes
+### Story 2.1: Backend Scaffold, Auth Middleware & Subscription Routes — Status: DONE
 
 As a Covergeist developer,
 I want a deployed backend service with Clerk JWT verification and subscription/quota endpoints,
