@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import type {
   CodeSnippet,
   CoverageMap,
@@ -128,10 +128,133 @@ export class TypeScriptAdapter implements LanguageAdapter {
   }
 
   async extractSnippet(
-    _document: vscode.TextDocument,
-    _range: vscode.Range,
+    document: vscode.TextDocument,
+    range: vscode.Range,
   ): Promise<CodeSnippet> {
-    throw new Error('extractSnippet not implemented — Story 3.1');
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+    const projectRoot = workspaceFolder?.uri.fsPath ?? path.dirname(document.uri.fsPath);
+
+    const runner = (await this.detectRunner(projectRoot)) ?? 'jest';
+
+    // Primary path: use VS Code's document symbol provider for accurate boundaries
+    let fnRange: vscode.Range;
+    let functionName: string;
+
+    try {
+      const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+        'vscode.executeDocumentSymbolProvider',
+        document.uri,
+      );
+      const sym = this.findInnermostFunctionSymbol(symbols ?? [], range);
+      if (sym) {
+        fnRange = sym.range;
+        functionName = sym.name;
+      } else {
+        const bounds = this.inferFunctionBounds(document, range.start.line);
+        fnRange = new vscode.Range(
+          bounds.startLine, 0,
+          bounds.endLine, document.lineAt(bounds.endLine).text.length,
+        );
+        functionName = bounds.name;
+      }
+    } catch {
+      const bounds = this.inferFunctionBounds(document, range.start.line);
+      fnRange = new vscode.Range(
+        bounds.startLine, 0,
+        bounds.endLine, document.lineAt(bounds.endLine).text.length,
+      );
+      functionName = bounds.name;
+    }
+
+    let snippetCode = document.getText(fnRange);
+    if (snippetCode.length > 8000) snippetCode = snippetCode.slice(0, 8000);
+
+    // Up to 5 lines before + 5 lines after the function = up to 10 context lines
+    const beforeStart = Math.max(0, fnRange.start.line - 5);
+    const afterEnd = Math.min(document.lineCount - 1, fnRange.end.line + 5);
+    const contextLines: string[] = [];
+    for (let i = beforeStart; i < fnRange.start.line; i++) {
+      contextLines.push(document.lineAt(i).text);
+    }
+    for (let i = fnRange.end.line + 1; i <= afterEnd; i++) {
+      contextLines.push(document.lineAt(i).text);
+    }
+    let contextCode = contextLines.join('\n');
+    if (contextCode.length > 2000) contextCode = contextCode.slice(0, 2000);
+
+    const relativeFilePath = path.relative(projectRoot, document.uri.fsPath).replace(/\\/g, '/');
+
+    return { language: 'typescript', runner, functionName, snippetCode, contextCode, relativeFilePath };
+  }
+
+  private findInnermostFunctionSymbol(
+    symbols: vscode.DocumentSymbol[],
+    range: vscode.Range,
+  ): vscode.DocumentSymbol | null {
+    const functionKinds = new Set([
+      vscode.SymbolKind.Function,
+      vscode.SymbolKind.Method,
+      vscode.SymbolKind.Constructor,
+    ]);
+
+    let best: vscode.DocumentSymbol | null = null;
+
+    const search = (syms: vscode.DocumentSymbol[]): void => {
+      for (const sym of syms) {
+        if (sym.range.contains(range)) {
+          if (functionKinds.has(sym.kind) && (!best || sym.range.start.isAfter(best.range.start))) {
+            best = sym;
+          }
+          search(sym.children);
+        }
+      }
+    };
+
+    search(symbols);
+    return best;
+  }
+
+  private inferFunctionBounds(
+    document: vscode.TextDocument,
+    targetLine: number,
+  ): { startLine: number; endLine: number; name: string } {
+    // Walk backward to find a function declaration line
+    let startLine = targetLine;
+    for (let i = targetLine; i >= Math.max(0, targetLine - 30); i--) {
+      const text = document.lineAt(i).text;
+      if (/\bfunction\b|\)\s*\{|\)\s*:\s*\w.*\{|=>\s*\{/.test(text)) {
+        startLine = i;
+        break;
+      }
+    }
+
+    // Brace-count forward to find closing brace
+    let depth = 0;
+    let endLine = targetLine;
+    let started = false;
+    for (let i = startLine; i < Math.min(startLine + 200, document.lineCount); i++) {
+      for (const ch of document.lineAt(i).text) {
+        if (ch === '{') { depth++; started = true; }
+        else if (ch === '}') depth--;
+      }
+      if (started && depth === 0) { endLine = i; break; }
+    }
+
+    // Extract function name from the declaration line
+    const startText = document.lineAt(startLine).text.trim();
+    let name = 'unknownFunction';
+    let m: RegExpExecArray | null;
+    if ((m = /function\s+(\w+)/.exec(startText))) {
+      name = m[1];
+    } else if ((m = /(?:const|let|var)\s+(\w+)\s*=/.exec(startText))) {
+      name = m[1];
+    } else if ((m = /(?:(?:public|private|protected|static|override|abstract|async)\s+)+(\w+)\s*\(/.exec(startText))) {
+      name = m[1];
+    } else if ((m = /^(\w+)\s*\(/.exec(startText))) {
+      name = m[1];
+    }
+
+    return { startLine, endLine, name };
   }
 
   private spawnCoverageProcess(

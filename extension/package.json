@@ -38,6 +38,11 @@
         "command": "covergeist.signOut",
         "title": "Sign Out",
         "category": "Covergeist"
+      },
+      {
+        "command": "covergeist.generateTest",
+        "title": "Generate Test",
+        "category": "Covergeist"
       }
     ],
     "configuration": {

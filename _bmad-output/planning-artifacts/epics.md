@@ -305,7 +305,7 @@ So that I can manage my usage and continue generating tests without interruption
 
 A subscribed developer can click "Generate test" on any haunted function, review the AI-generated Jest or Vitest test in a diff panel, and accept it with one click — knowing only their code snippet (not their full project) was sent to the backend.
 
-### Story 3.1: Snippet Extraction & Generate Test Code Action
+### Story 3.1: Snippet Extraction & Generate Test Code Action ✅ DONE
 
 As a developer,
 I want a "Generate test" action on any haunted function that checks my auth and subscription before proceeding,

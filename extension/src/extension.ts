@@ -6,6 +6,8 @@ import { AuthService } from './auth/AuthService';
 import { CoverageSummaryProvider } from './coverage/CoverageSummaryProvider';
 import { CoverageService } from './coverage/CoverageService';
 import { DecorationProvider } from './coverage/DecorationProvider';
+import { GenerateTestCodeActionProvider } from './generation/GenerateTestCodeActionProvider';
+import { GenerationService } from './generation/GenerationService';
 import { QuotaService } from './quota/QuotaService';
 
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -42,6 +44,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const quotaService = new QuotaService(backendClient, statusBarItem);
   await quotaService.refresh();
 
+  // --- Generation ---
+  const generationService = new GenerationService(authService, backendClient, registry);
+
   // --- UI providers ---
   const decorationProvider = new DecorationProvider(coverageService, context);
   const summaryProvider = new CoverageSummaryProvider(coverageService);
@@ -65,6 +70,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
 
+  const generateTestCommand = vscode.commands.registerCommand(
+    'covergeist.generateTest',
+    async (document: vscode.TextDocument, range: vscode.Range) => {
+      await generationService.generateTest(document, range);
+    },
+  );
+
+  const generateTestCodeActionProvider = vscode.languages.registerCodeActionsProvider(
+    [
+      { language: 'typescript' },
+      { language: 'javascript' },
+      { language: 'typescriptreact' },
+      { language: 'javascriptreact' },
+    ],
+    new GenerateTestCodeActionProvider(coverageService),
+    { providedCodeActionKinds: GenerateTestCodeActionProvider.providedCodeActionKinds },
+  );
+
   const signInCommand = vscode.commands.registerCommand(
     'covergeist.signIn',
     () => authService.signIn(),
@@ -85,6 +108,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     summaryProvider,
     summaryView,
     runScanCommand,
+    generateTestCommand,
+    generateTestCodeActionProvider,
     signInCommand,
     signOutCommand,
   );
