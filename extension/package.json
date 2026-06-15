@@ -28,8 +28,38 @@
         "command": "covergeist.runScan",
         "title": "Run Coverage Scan",
         "category": "Covergeist"
+      },
+      {
+        "command": "covergeist.signIn",
+        "title": "Sign In",
+        "category": "Covergeist"
+      },
+      {
+        "command": "covergeist.signOut",
+        "title": "Sign Out",
+        "category": "Covergeist"
       }
     ],
+    "configuration": {
+      "title": "Covergeist",
+      "properties": {
+        "covergeist.apiUrl": {
+          "type": "string",
+          "default": "https://api.covergeist.com",
+          "description": "Backend API URL. Override for local development (e.g. http://localhost:3000)."
+        },
+        "covergeist.clerkPublishableKey": {
+          "type": "string",
+          "default": "",
+          "description": "Clerk publishable key for the Covergeist application."
+        },
+        "covergeist.clerkFrontendApiUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Clerk frontend API URL (e.g. https://your-instance.clerk.accounts.dev)."
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {

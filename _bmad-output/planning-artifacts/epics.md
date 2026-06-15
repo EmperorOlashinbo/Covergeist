@@ -247,7 +247,7 @@ So that the extension can verify user identity and check subscription status.
 
 **Given** the `generation_log` table exists per architecture §5, **When** the backend starts, **Then** the table is present and queryable (no inserts made in this story — that belongs to Epic 3).
 
-### Story 2.2: Extension Auth Flow & Session Persistence
+### Story 2.2: Extension Auth Flow & Session Persistence — Status: DONE
 
 As a developer,
 I want to sign in to Covergeist via my browser and have my session persist across VS Code restarts,
