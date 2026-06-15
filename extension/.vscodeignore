@@ -1,0 +1,6 @@
+**/.git/**
+**/node_modules/**
+**/*.map
+src/
+tsconfig.json
+.eslintrc*

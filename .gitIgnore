@@ -269,3 +269,4 @@ Thumbs.db
 
 # Claude Code (personal, per-machine)
 .claude/settings.local.json
+skills-lock.json

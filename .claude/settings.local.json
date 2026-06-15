@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm run *)",
+      "Bash(node *)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm --filter @covergeist/shared build)",
+      "Bash(pnpm --filter covergeist build)",
+      "Bash(pnpm *)"
+    ]
+  }
+}

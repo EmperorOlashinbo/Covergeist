@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Ghost body: semicircle head + rectangular body + wavy bottom hem -->
+  <path d="M8 1.5a5 5 0 0 0-5 5v7l1.25-1.5 1.25 1.5 1.25-1.5 1.25 1.5 1.25-1.5 1.25 1.5 1.25-1.5 1.25 1.5V6.5a5 5 0 0 0-5-5z" fill="#cc4444"/>
+  <!-- Eyes -->
+  <circle cx="6.5" cy="7" r="1" fill="white"/>
+  <circle cx="9.5" cy="7" r="1" fill="white"/>
+</svg>
