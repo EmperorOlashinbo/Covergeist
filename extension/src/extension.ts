@@ -6,6 +6,7 @@ import { AuthService } from './auth/AuthService';
 import { CoverageSummaryProvider } from './coverage/CoverageSummaryProvider';
 import { CoverageService } from './coverage/CoverageService';
 import { DecorationProvider } from './coverage/DecorationProvider';
+import { QuotaService } from './quota/QuotaService';
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 
@@ -14,7 +15,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const authService = new AuthService(context);
   await authService.initialize(); // silently restore session from SecretStorage
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const backendClient = new BackendClient(authService);
 
   // Handle vscode://covergeist.covergeist/auth?code=…&state=… redirects
@@ -37,6 +37,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   statusBarItem.tooltip = 'Covergeist — click to run a coverage scan';
   statusBarItem.command = 'covergeist.runScan';
   statusBarItem.show();
+
+  // --- Quota ---
+  const quotaService = new QuotaService(backendClient, statusBarItem);
+  await quotaService.refresh();
 
   // --- UI providers ---
   const decorationProvider = new DecorationProvider(coverageService, context);
@@ -75,6 +79,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     authService,
     uriHandler,
     coverageService,
+    quotaService,
     statusBarItem,
     decorationProvider,
     summaryProvider,

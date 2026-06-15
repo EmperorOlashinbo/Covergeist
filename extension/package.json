@@ -57,6 +57,11 @@
           "type": "string",
           "default": "",
           "description": "Clerk frontend API URL (e.g. https://your-instance.clerk.accounts.dev)."
+        },
+        "covergeist.billingUrl": {
+          "type": "string",
+          "default": "https://covergeist.com/billing",
+          "description": "URL opened when the user clicks Upgrade."
         }
       }
     },

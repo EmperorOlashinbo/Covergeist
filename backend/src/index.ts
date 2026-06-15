@@ -3,6 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
 import { quotaRoutes } from './routes/quota';
 import { subscriptionRoutes } from './routes/subscription';
+import { stripeWebhookRoutes } from './routes/webhooks/stripe';
 
 async function buildServer() {
   const server = Fastify({ logger: true });
@@ -14,6 +15,7 @@ async function buildServer() {
 
   await server.register(subscriptionRoutes);
   await server.register(quotaRoutes);
+  await server.register(stripeWebhookRoutes);
 
   return server;
 }

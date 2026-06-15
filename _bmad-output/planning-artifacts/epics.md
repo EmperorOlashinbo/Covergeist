@@ -271,7 +271,7 @@ So that I only need to authenticate once.
 
 **Given** the backend returns `401`, **When** `BackendClient` receives it, **Then** it attempts one silent token refresh and retries the request once before surfacing a non-blocking "Session expired — please sign in" notification.
 
-### Story 2.3: Quota Display, Upgrade Flow & Stripe Webhooks
+### Story 2.3: Quota Display, Upgrade Flow & Stripe Webhooks ✅ DONE
 
 As a subscribed developer,
 I want to see my remaining generation quota in VS Code and be able to open the billing page when I need to upgrade,

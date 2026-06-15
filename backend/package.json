@@ -18,7 +18,8 @@
     "@neondatabase/serverless": "^1.1.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^4.28.1",
-    "jose": "^6.2.3"
+    "jose": "^6.2.3",
+    "stripe": "^22.2.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
