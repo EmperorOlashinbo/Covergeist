@@ -351,7 +351,7 @@ So that I receive a working test without writing it by hand.
 
 **Given** `POST /v1/generate` is called with a body that fails Zod validation, **When** received, **Then** the backend returns `400 { error: "validation_error", details: [...] }`.
 
-### Story 3.3: Diff Preview, Accept & Reject Flow
+### Story 3.3: Diff Preview, Accept & Reject Flow ✅ DONE
 
 As a developer,
 I want to preview the generated test in a diff panel and accept or reject it with one click,

@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import { AdapterRegistry } from './adapters/AdapterRegistry';
 import { TypeScriptAdapter } from './adapters/typescript/TypeScriptAdapter';
-import { BackendClient } from './api/BackendClient';
+import { BackendClient, NetworkError } from './api/BackendClient';
 import { AuthService } from './auth/AuthService';
 import { CoverageSummaryProvider } from './coverage/CoverageSummaryProvider';
 import { CoverageService } from './coverage/CoverageService';
 import { DecorationProvider } from './coverage/DecorationProvider';
+import { DiffService } from './generation/DiffService';
 import { GenerateTestCodeActionProvider } from './generation/GenerateTestCodeActionProvider';
 import { GenerationService } from './generation/GenerationService';
 import { QuotaService } from './quota/QuotaService';
@@ -46,6 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // --- Generation ---
   const generationService = new GenerationService(authService, backendClient, registry);
+  const diffService = new DiffService();
 
   // --- UI providers ---
   const decorationProvider = new DecorationProvider(coverageService, context);
@@ -73,14 +75,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const generateTestCommand = vscode.commands.registerCommand(
     'covergeist.generateTest',
     async (document: vscode.TextDocument, range: vscode.Range) => {
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Covergeist: Generating test…', cancellable: false },
-        async () => {
-          const result = await generationService.generateTest(document, range);
-          // Story 3.3 will open a diff panel here using result.test and result.suggestedTestFilePath
-          void result;
-        },
-      );
+      // Progress notification covers only the API call — dismissed before the diff opens
+      let result: Awaited<ReturnType<typeof generationService.generateTest>>;
+      try {
+        result = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'Covergeist: Generating test…', cancellable: false },
+          () => generationService.generateTest(document, range),
+        );
+      } catch (err) {
+        if (err instanceof NetworkError) {
+          const msg = err.message.includes('504')
+            ? 'Generation timed out — please try again.'
+            : err.message;
+          void vscode.window.showErrorMessage(msg);
+          return;
+        }
+        throw err;
+      }
+
+      if (!result) return;
+
+      const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
+      if (!workspaceRoot) return;
+
+      await diffService.showDiff(workspaceRoot, result.test, result.suggestedTestFilePath);
     },
   );
 
@@ -114,6 +132,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     decorationProvider,
     summaryProvider,
     summaryView,
+    diffService,
     runScanCommand,
     generateTestCommand,
     generateTestCodeActionProvider,
