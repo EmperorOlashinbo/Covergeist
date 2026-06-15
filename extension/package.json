@@ -29,7 +29,24 @@
         "title": "Run Coverage Scan",
         "category": "Covergeist"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "covergeist-sidebar",
+          "title": "Covergeist",
+          "icon": "assets/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "covergeist-sidebar": [
+        {
+          "id": "covergeist.summaryView",
+          "name": "Coverage Summary"
+        }
+      ]
+    }
   },
   "dependencies": {
     "@covergeist/shared": "workspace:*"

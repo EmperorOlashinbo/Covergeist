@@ -3,6 +3,7 @@ import { AdapterRegistry } from './adapters/AdapterRegistry';
 import { TypeScriptAdapter } from './adapters/typescript/TypeScriptAdapter';
 import { CoverageService } from './coverage/CoverageService';
 import { DecorationProvider } from './coverage/DecorationProvider';
+import { CoverageSummaryProvider } from './coverage/CoverageSummaryProvider';
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 
@@ -20,6 +21,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const decorationProvider = new DecorationProvider(coverageService, context);
 
+  const summaryProvider = new CoverageSummaryProvider(coverageService);
+  const summaryView = vscode.window.registerTreeDataProvider(
+    'covergeist.summaryView',
+    summaryProvider,
+  );
+
   const runScanCommand = vscode.commands.registerCommand(
     'covergeist.runScan',
     async () => {
@@ -34,7 +41,14 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   );
 
-  context.subscriptions.push(statusBarItem, coverageService, decorationProvider, runScanCommand);
+  context.subscriptions.push(
+    statusBarItem,
+    coverageService,
+    decorationProvider,
+    summaryProvider,
+    summaryView,
+    runScanCommand,
+  );
 }
 
 export function deactivate(): void {

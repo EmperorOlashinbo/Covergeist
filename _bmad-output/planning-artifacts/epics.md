@@ -199,7 +199,7 @@ So that I can see coverage gaps in context while reading my code.
 
 **Given** an unhandled error occurs in DecorationProvider, **When** it is thrown, **Then** the extension catches it, shows a non-blocking notification, and VS Code remains stable (NFR6).
 
-### Story 1.5: Coverage Summary Panel
+### Story 1.5: Coverage Summary Panel — Status: DONE
 
 As a developer,
 I want a sidebar panel showing percentage covered per file,
