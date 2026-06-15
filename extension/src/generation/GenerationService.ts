@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import type { SubscriptionResponse } from '@covergeist/shared';
+import type { GenerateResponse, SubscriptionResponse } from '@covergeist/shared';
 import type { AdapterRegistry } from '../adapters/AdapterRegistry';
-import { SubscriptionError } from '../api/BackendClient';
+import { QuotaError, SubscriptionError } from '../api/BackendClient';
 import type { BackendClient } from '../api/BackendClient';
 import type { AuthService } from '../auth/AuthService';
 
@@ -12,7 +12,10 @@ export class GenerationService {
     private readonly registry: AdapterRegistry,
   ) {}
 
-  async generateTest(document: vscode.TextDocument, range: vscode.Range): Promise<void> {
+  async generateTest(
+    document: vscode.TextDocument,
+    range: vscode.Range,
+  ): Promise<GenerateResponse | null> {
     // 1. Auth gate
     const token = await this.authService.getAccessToken();
     if (!token) {
@@ -21,41 +24,67 @@ export class GenerationService {
         'Sign In',
       );
       if (choice === 'Sign In') void this.authService.signIn();
-      return;
+      return null;
     }
 
     // 2. Subscription gate — GET /v1/subscription returns {status:'none'} when not subscribed
     try {
       const sub = await this.client.get<SubscriptionResponse>('/v1/subscription');
       if (sub.status !== 'active' && sub.status !== 'trialing') {
-        await this.showUpgradeMessage();
-        return;
+        await this.showSubscribeMessage();
+        return null;
       }
     } catch (err) {
       if (err instanceof SubscriptionError) {
-        await this.showUpgradeMessage();
-        return;
+        await this.showSubscribeMessage();
+        return null;
       }
       throw err;
     }
 
     // 3. Resolve adapter and extract snippet
     const projectRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
-    if (!projectRoot) return;
+    if (!projectRoot) return null;
 
     const adapter = await this.registry.resolve(projectRoot);
-    if (!adapter) return;
+    if (!adapter) return null;
 
-    await adapter.extractSnippet(document, range);
-    // Story 3.2 will POST the snippet to /v1/generate and pass the result to Story 3.3
+    const snippet = await adapter.extractSnippet(document, range);
+
+    // 4. POST snippet to backend — handle quota exhaustion
+    let result: GenerateResponse;
+    try {
+      result = await this.client.post<GenerateResponse>('/v1/generate', { snippet });
+    } catch (err) {
+      if (err instanceof QuotaError) {
+        await this.showQuotaExhaustedMessage();
+        return null;
+      }
+      throw err;
+    }
+
+    return result;
   }
 
-  private async showUpgradeMessage(): Promise<void> {
+  private async showSubscribeMessage(): Promise<void> {
     const billingUrl =
       vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
       'https://covergeist.com/billing';
     const choice = await vscode.window.showInformationMessage(
       'Subscribe to Covergeist to generate tests.',
+      'Upgrade',
+    );
+    if (choice === 'Upgrade') {
+      await vscode.env.openExternal(vscode.Uri.parse(billingUrl));
+    }
+  }
+
+  private async showQuotaExhaustedMessage(): Promise<void> {
+    const billingUrl =
+      vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
+      'https://covergeist.com/billing';
+    const choice = await vscode.window.showInformationMessage(
+      "You've used all your generations this month. Upgrade to continue.",
       'Upgrade',
     );
     if (choice === 'Upgrade') {

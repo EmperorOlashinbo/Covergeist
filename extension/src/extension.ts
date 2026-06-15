@@ -73,7 +73,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const generateTestCommand = vscode.commands.registerCommand(
     'covergeist.generateTest',
     async (document: vscode.TextDocument, range: vscode.Range) => {
-      await generationService.generateTest(document, range);
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Covergeist: Generating test…', cancellable: false },
+        async () => {
+          const result = await generationService.generateTest(document, range);
+          // Story 3.3 will open a diff panel here using result.test and result.suggestedTestFilePath
+          void result;
+        },
+      );
     },
   );
 

@@ -323,7 +323,7 @@ So that I can request a test without navigating away from my code.
 
 **Given** a `CodeSnippet` where `snippetCode` exceeds 8000 characters or `contextCode` exceeds 2000 characters, **When** the snippet is constructed, **Then** the values are clamped to the Zod schema maxima before transmission (FR12, architecture §4.4).
 
-### Story 3.2: Backend Test Generation Endpoint
+### Story 3.2: Backend Test Generation Endpoint ✅ DONE
 
 As a subscribed developer,
 I want the backend to generate a ready-to-run Jest or Vitest test for my code snippet,

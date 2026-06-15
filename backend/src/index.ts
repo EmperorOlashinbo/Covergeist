@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
+import { generateRoutes } from './routes/generate';
 import { quotaRoutes } from './routes/quota';
 import { subscriptionRoutes } from './routes/subscription';
 import { stripeWebhookRoutes } from './routes/webhooks/stripe';
@@ -15,6 +16,7 @@ async function buildServer() {
 
   await server.register(subscriptionRoutes);
   await server.register(quotaRoutes);
+  await server.register(generateRoutes);
   await server.register(stripeWebhookRoutes);
 
   return server;
