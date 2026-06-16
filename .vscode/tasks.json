@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: build - extension",
+      "type": "shell",
+      "command": "pnpm --filter covergeist build",
+      "group": "build",
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": "$tsc"
+    }
+  ]
+}
