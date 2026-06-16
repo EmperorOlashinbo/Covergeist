@@ -8,6 +8,9 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
@@ -23,7 +26,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@vitest/coverage-v8": "^4.1.9",
     "drizzle-kit": "^0.31.10",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.9"
   }
 }
