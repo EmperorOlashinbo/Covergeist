@@ -80,7 +80,11 @@ export class TypeScriptAdapter implements LanguageAdapter {
       const line = raw.trim();
 
       if (line.startsWith('SF:')) {
-        currentPath = line.slice(3);
+        const rawPath = line.slice(3);
+        // Istanbul writes relative paths; v8 writes absolute — normalise to absolute
+        currentPath = path.isAbsolute(rawPath)
+          ? rawPath
+          : path.resolve(path.dirname(path.dirname(lcovPath)), rawPath);
         lines = new Map();
         functions = new Map();
       } else if (line.startsWith('DA:')) {
