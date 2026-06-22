@@ -93,7 +93,7 @@ export class AuthService implements vscode.Disposable {
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('client_id', oauthClientId);
     url.searchParams.set('redirect_uri', REDIRECT_URI);
-    url.searchParams.set('scope', 'openid profile email');
+    url.searchParams.set('scope', 'profile email');
     url.searchParams.set('code_challenge', challenge);
     url.searchParams.set('code_challenge_method', 'S256');
     url.searchParams.set('state', state);
@@ -151,17 +151,17 @@ export class AuthService implements vscode.Disposable {
         server.close();
         this.callbackServer = null;
 
+        const isError = reqUrl.searchParams.has('error');
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(
           '<html><body style="font-family:sans-serif;padding:2rem">' +
-          '<h2>Signed in to Covergeist ✓</h2>' +
-          '<p>You can close this tab and return to VS Code.</p>' +
+          (isError
+            ? `<h2>Sign-in failed</h2><p>${reqUrl.searchParams.get('error_description') ?? reqUrl.searchParams.get('error')}</p>`
+            : '<h2>Signed in to Covergeist ✓</h2><p>You can close this tab and return to VS Code.</p>') +
           '</body></html>',
         );
 
-        const code = reqUrl.searchParams.get('code');
-        const state = reqUrl.searchParams.get('state');
-        void this.exchangeCode(code, state, frontendApiUrl, oauthClientId);
+        void this.exchangeCode(reqUrl, frontendApiUrl, oauthClientId);
       });
 
       this.callbackServer = server;
@@ -183,14 +183,29 @@ export class AuthService implements vscode.Disposable {
   }
 
   private async exchangeCode(
-    code: string | null,
-    state: string | null,
+    callbackUrl: URL,
     frontendApiUrl: string,
     oauthClientId: string,
   ): Promise<void> {
-    if (!code || state !== this.pendingState) {
+    const error = callbackUrl.searchParams.get('error');
+    if (error) {
+      const desc = callbackUrl.searchParams.get('error_description') ?? error;
+      void vscode.window.showErrorMessage(`Covergeist: Authentication failed — ${desc}`);
+      return;
+    }
+
+    const code = callbackUrl.searchParams.get('code');
+    const state = callbackUrl.searchParams.get('state');
+
+    if (!code) {
       void vscode.window.showErrorMessage(
-        'Covergeist: Authentication failed — invalid callback parameters.',
+        'Covergeist: Authentication failed — no authorization code in callback.',
+      );
+      return;
+    }
+    if (state !== this.pendingState) {
+      void vscode.window.showErrorMessage(
+        'Covergeist: Authentication failed — state mismatch (possible CSRF).',
       );
       return;
     }
