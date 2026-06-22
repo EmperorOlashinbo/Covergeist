@@ -15,6 +15,21 @@ export class QuotaService implements vscode.Disposable {
     private readonly statusBarItem: vscode.StatusBarItem,
   ) {}
 
+  private async openCheckout(): Promise<void> {
+    try {
+      const { url } = await this.client.post<{ url: string }>(
+        '/v1/billing/checkout',
+        {},
+      );
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    } catch {
+      const fallback =
+        vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
+        'https://covergeist.com/billing';
+      await vscode.env.openExternal(vscode.Uri.parse(fallback));
+    }
+  }
+
   /** Fetches current quota and updates the status bar. Safe to call at any time. */
   async refresh(): Promise<void> {
     try {
@@ -53,11 +68,7 @@ export class QuotaService implements vscode.Disposable {
     );
     if (choice !== 'Upgrade') return;
 
-    const billingUrl =
-      vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
-      'https://covergeist.com/billing';
-    await vscode.env.openExternal(vscode.Uri.parse(billingUrl));
-
+    await this.openCheckout();
     this.startSubscriptionPolling();
   }
 

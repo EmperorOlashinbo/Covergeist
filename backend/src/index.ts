@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
+import { billingRoutes } from './routes/billing';
 import { generateRoutes } from './routes/generate';
 import { quotaRoutes } from './routes/quota';
 import { subscriptionRoutes } from './routes/subscription';
@@ -14,6 +15,7 @@ async function buildServer() {
 
   server.get('/health', async () => ({ status: 'ok' }));
 
+  await server.register(billingRoutes);
   await server.register(subscriptionRoutes);
   await server.register(quotaRoutes);
   await server.register(generateRoutes);

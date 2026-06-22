@@ -20,15 +20,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const backendClient = new BackendClient(authService);
 
-  // Handle vscode://covergeist.covergeist/auth?code=…&state=… redirects
-  const uriHandler = vscode.window.registerUriHandler({
-    handleUri(uri: vscode.Uri): void {
-      if (uri.path === '/auth') {
-        void authService.handleCallback(uri);
-      }
-    },
-  });
-
   // --- Coverage ---
   const registry = new AdapterRegistry();
   registry.register(new TypeScriptAdapter());
@@ -125,7 +116,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     authService,
-    uriHandler,
     coverageService,
     quotaService,
     statusBarItem,

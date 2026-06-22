@@ -53,10 +53,10 @@
           "default": "https://api.covergeist.com",
           "description": "Backend API URL. Override for local development (e.g. http://localhost:3000)."
         },
-        "covergeist.clerkPublishableKey": {
+        "covergeist.clerkOAuthClientId": {
           "type": "string",
           "default": "",
-          "description": "Clerk publishable key for the Covergeist application."
+          "description": "Clerk OAuth Application client_id. Create one in Clerk Dashboard → Configure → OAuth Applications."
         },
         "covergeist.clerkFrontendApiUrl": {
           "type": "string",

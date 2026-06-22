@@ -67,28 +67,37 @@ export class GenerationService {
   }
 
   private async showSubscribeMessage(): Promise<void> {
-    const billingUrl =
-      vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
-      'https://covergeist.com/billing';
     const choice = await vscode.window.showInformationMessage(
       'Subscribe to Covergeist to generate tests.',
       'Upgrade',
     );
     if (choice === 'Upgrade') {
-      await vscode.env.openExternal(vscode.Uri.parse(billingUrl));
+      await this.openCheckout();
     }
   }
 
   private async showQuotaExhaustedMessage(): Promise<void> {
-    const billingUrl =
-      vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
-      'https://covergeist.com/billing';
     const choice = await vscode.window.showInformationMessage(
       "You've used all your generations this month. Upgrade to continue.",
       'Upgrade',
     );
     if (choice === 'Upgrade') {
-      await vscode.env.openExternal(vscode.Uri.parse(billingUrl));
+      await this.openCheckout();
+    }
+  }
+
+  private async openCheckout(): Promise<void> {
+    try {
+      const { url } = await this.client.post<{ url: string }>(
+        '/v1/billing/checkout',
+        {},
+      );
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    } catch {
+      const fallback =
+        vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
+        'https://covergeist.com/billing';
+      await vscode.env.openExternal(vscode.Uri.parse(fallback));
     }
   }
 }

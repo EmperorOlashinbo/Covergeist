@@ -7,7 +7,19 @@
       "Bash(pnpm --filter @covergeist/shared build)",
       "Bash(pnpm --filter covergeist build)",
       "Bash(pnpm *)",
-      "Bash(DATABASE_URL=postgresql://placeholder pnpm db:generate)"
+      "Bash(DATABASE_URL=postgresql://placeholder pnpm db:generate)",
+      "Bash(python3 *)",
+      "Bash(git -C /home/emperor/Covergeist status)",
+      "Bash(git -C /home/emperor/Covergeist log --oneline -5)",
+      "Bash(git *)",
+      "Bash(gh run *)",
+      "Skill(run)",
+      "Bash(pnpm --filter backend dev)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(curl *)",
+      "Bash(npm run *)",
+      "Bash(npm test *)"
     ]
   }
 }
