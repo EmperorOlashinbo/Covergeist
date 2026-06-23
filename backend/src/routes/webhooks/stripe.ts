@@ -48,6 +48,7 @@ export async function stripeWebhookRoutes(fastify: FastifyInstance): Promise<voi
     }
 
     switch (event.type) {
+      case 'customer.subscription.created':
       case 'customer.subscription.updated':
         await handleSubscriptionUpsert(event.data.object as unknown as SubData);
         break;
