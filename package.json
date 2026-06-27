@@ -6,7 +6,7 @@
     "typecheck": "pnpm -r typecheck"
   },
   "engines": {
-    "node": ">=20",
+    "node": ">=22.13",
     "pnpm": ">=9"
   }
 }
