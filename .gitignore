@@ -8,8 +8,10 @@ out/
 # VS Code extension package
 *.vsix
 
-# Coverage reports
-coverage/
+# Coverage reports (output only — not source directories named coverage/)
+**/coverage/
+!extension/src/coverage/
+!backend/src/coverage/
 
 # Environment secrets — never commit
 .env
