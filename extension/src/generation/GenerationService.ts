@@ -33,12 +33,12 @@ export class GenerationService {
     try {
       const sub = await this.client.get<SubscriptionResponse>('/v1/subscription');
       if (sub.status !== 'active' && sub.status !== 'trialing') {
-        await this.quotaService.showUpgradePrompt();
+        await this.quotaService.showUpgradePrompt('no-subscription');
         return null;
       }
     } catch (err) {
       if (err instanceof SubscriptionError) {
-        await this.quotaService.showUpgradePrompt();
+        await this.quotaService.showUpgradePrompt('no-subscription');
         return null;
       }
       throw err;

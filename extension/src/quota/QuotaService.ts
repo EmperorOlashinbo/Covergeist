@@ -56,17 +56,14 @@ export class QuotaService implements vscode.Disposable {
     return this.lastQuota;
   }
 
-  /**
-   * Shows "quota exhausted" notification. On "Upgrade" click, opens the billing
-   * page and starts polling GET /v1/subscription every 10 s (up to 5 min) so the
-   * status bar updates automatically when the subscription becomes active.
-   */
-  async showUpgradePrompt(): Promise<void> {
-    const choice = await vscode.window.showInformationMessage(
-      "You've used all your generations this month. Upgrade to continue.",
-      'Upgrade',
-    );
-    if (choice !== 'Upgrade') return;
+  async showUpgradePrompt(reason: 'no-subscription' | 'quota-exhausted' = 'quota-exhausted'): Promise<void> {
+    const [message, button] =
+      reason === 'no-subscription'
+        ? ['Subscribe to Covergeist to generate tests.', 'Subscribe']
+        : ["You've used all your generations this month. Upgrade to continue.", 'Upgrade'];
+
+    const choice = await vscode.window.showInformationMessage(message, button);
+    if (choice !== button) return;
 
     await this.openCheckout();
     this.startSubscriptionPolling();
