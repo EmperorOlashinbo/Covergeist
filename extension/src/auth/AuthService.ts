@@ -53,6 +53,9 @@ export class AuthService implements vscode.Disposable {
   private pendingState: string | null = null;
   private callbackServer: http.Server | null = null;
 
+  private readonly _onDidSignIn = new vscode.EventEmitter<void>();
+  readonly onDidSignIn = this._onDidSignIn.event;
+
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   async initialize(): Promise<void> {
@@ -132,6 +135,7 @@ export class AuthService implements vscode.Disposable {
   dispose(): void {
     this.callbackServer?.close();
     this.callbackServer = null;
+    this._onDidSignIn.dispose();
   }
 
   private startCallbackServer(frontendApiUrl: string, oauthClientId: string): Promise<void> {
@@ -256,5 +260,6 @@ export class AuthService implements vscode.Disposable {
   private storeTokens(tokens: TokenResponse): void {
     this.accessToken = tokens.access_token;
     this.accessTokenExpiry = Date.now() + tokens.expires_in * 1_000;
+    this._onDidSignIn.fire();
   }
 }

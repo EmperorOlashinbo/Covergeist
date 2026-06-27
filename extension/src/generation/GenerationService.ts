@@ -4,12 +4,14 @@ import type { AdapterRegistry } from '../adapters/AdapterRegistry';
 import { QuotaError, SubscriptionError } from '../api/BackendClient';
 import type { BackendClient } from '../api/BackendClient';
 import type { AuthService } from '../auth/AuthService';
+import type { QuotaService } from '../quota/QuotaService';
 
 export class GenerationService {
   constructor(
     private readonly authService: AuthService,
     private readonly client: BackendClient,
     private readonly registry: AdapterRegistry,
+    private readonly quotaService: QuotaService,
   ) {}
 
   async generateTest(
@@ -31,12 +33,12 @@ export class GenerationService {
     try {
       const sub = await this.client.get<SubscriptionResponse>('/v1/subscription');
       if (sub.status !== 'active' && sub.status !== 'trialing') {
-        await this.showSubscribeMessage();
+        await this.quotaService.showUpgradePrompt();
         return null;
       }
     } catch (err) {
       if (err instanceof SubscriptionError) {
-        await this.showSubscribeMessage();
+        await this.quotaService.showUpgradePrompt();
         return null;
       }
       throw err;
@@ -57,7 +59,7 @@ export class GenerationService {
       result = await this.client.post<GenerateResponse>('/v1/generate', { snippet });
     } catch (err) {
       if (err instanceof QuotaError) {
-        await this.showQuotaExhaustedMessage();
+        await this.quotaService.showUpgradePrompt();
         return null;
       }
       throw err;
@@ -66,38 +68,4 @@ export class GenerationService {
     return result;
   }
 
-  private async showSubscribeMessage(): Promise<void> {
-    const choice = await vscode.window.showInformationMessage(
-      'Subscribe to Covergeist to generate tests.',
-      'Upgrade',
-    );
-    if (choice === 'Upgrade') {
-      await this.openCheckout();
-    }
-  }
-
-  private async showQuotaExhaustedMessage(): Promise<void> {
-    const choice = await vscode.window.showInformationMessage(
-      "You've used all your generations this month. Upgrade to continue.",
-      'Upgrade',
-    );
-    if (choice === 'Upgrade') {
-      await this.openCheckout();
-    }
-  }
-
-  private async openCheckout(): Promise<void> {
-    try {
-      const { url } = await this.client.post<{ url: string }>(
-        '/v1/billing/checkout',
-        {},
-      );
-      await vscode.env.openExternal(vscode.Uri.parse(url));
-    } catch {
-      const fallback =
-        vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
-        'https://covergeist.com/billing';
-      await vscode.env.openExternal(vscode.Uri.parse(fallback));
-    }
-  }
 }

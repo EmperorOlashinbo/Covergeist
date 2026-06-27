@@ -36,8 +36,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const quotaService = new QuotaService(backendClient, statusBarItem);
   await quotaService.refresh();
 
+  // Refresh quota whenever a session is established (sign-in or token restore)
+  authService.onDidSignIn(() => void quotaService.refresh());
+
   // --- Generation ---
-  const generationService = new GenerationService(authService, backendClient, registry);
+  const generationService = new GenerationService(authService, backendClient, registry, quotaService);
   const diffService = new DiffService();
 
   // --- UI providers ---
@@ -90,6 +93,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!workspaceRoot) return;
 
       await diffService.showDiff(workspaceRoot, result.test, result.suggestedTestFilePath);
+      void quotaService.refresh();
     },
   );
 

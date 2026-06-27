@@ -93,7 +93,10 @@ export class QuotaService implements vscode.Disposable {
       const sub = await this.client.get<SubscriptionResponse>('/v1/subscription');
       if (sub.status === 'active') {
         this.stopPolling();
-        await this.refresh(); // refreshes status bar with new quota
+        await this.refresh();
+        void vscode.window.showInformationMessage(
+          'Covergeist: Subscription activated — you can now generate tests!',
+        );
       }
     } catch (err) {
       if (err instanceof AuthError) this.stopPolling();
