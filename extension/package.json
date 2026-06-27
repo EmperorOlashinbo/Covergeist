@@ -15,6 +15,7 @@
     "url": "https://github.com/covergeist/covergeist"
   },
   "license": "MIT",
+  "icon": "assets/icon.png",
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "scripts": {
