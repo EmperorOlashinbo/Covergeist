@@ -25,7 +25,7 @@ export class QuotaService implements vscode.Disposable {
     } catch {
       const fallback =
         vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
-        'https://covergeist.com/billing';
+        'https://covergeist.dev/billing';
       await vscode.env.openExternal(vscode.Uri.parse(fallback));
     }
   }

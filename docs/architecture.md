@@ -304,7 +304,7 @@ WHERE user_id = $1 AND billing_period_start = $2;
 
 ## 6. API Contracts
 
-Base URL: `https://api.covergeist.com` (configured in extension via `covergeist.apiUrl` setting, defaults to production).
+Base URL: `https://api.covergeist.dev` (configured in extension via `covergeist.apiUrl` setting, defaults to production).
 
 All routes except `/v1/webhooks/stripe` require `Authorization: Bearer <clerk-access-token>`.
 

@@ -38,7 +38,7 @@ export class BackendClient {
   private get apiUrl(): string {
     return (
       vscode.workspace.getConfiguration('covergeist').get<string>('apiUrl') ??
-      'https://api.covergeist.com'
+      'https://api.covergeist.dev'
     );
   }
 

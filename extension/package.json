@@ -51,7 +51,7 @@
       "properties": {
         "covergeist.apiUrl": {
           "type": "string",
-          "default": "https://api.covergeist.com",
+          "default": "https://api.covergeist.dev",
           "description": "Backend API URL. Override for local development (e.g. http://localhost:3000)."
         },
         "covergeist.clerkOAuthClientId": {
@@ -66,7 +66,7 @@
         },
         "covergeist.billingUrl": {
           "type": "string",
-          "default": "https://covergeist.com/billing",
+          "default": "https://covergeist.dev/billing",
           "description": "URL opened when the user clicks Upgrade."
         }
       }

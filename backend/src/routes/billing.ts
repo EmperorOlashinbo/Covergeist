@@ -52,10 +52,10 @@ export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
         line_items: [{ price: priceId, quantity: 1 }],
         success_url:
           process.env.STRIPE_SUCCESS_URL ??
-          'https://covergeist.com/billing/success',
+          'https://covergeist.dev/billing/success',
         cancel_url:
           process.env.STRIPE_CANCEL_URL ??
-          'https://covergeist.com/billing/cancel',
+          'https://covergeist.dev/billing/cancel',
       });
 
       return reply.status(200).send({ url: session.url });

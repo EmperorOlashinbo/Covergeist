@@ -29,10 +29,10 @@ Only the selected function's code snippet is sent to the backend — your full c
 
 | Setting | Default | Description |
 |---|---|---|
-| `covergeist.apiUrl` | `https://api.covergeist.com` | Backend API URL. Override for local development. |
+| `covergeist.apiUrl` | `https://api.covergeist.dev` | Backend API URL. Override for local development. |
 | `covergeist.clerkOAuthClientId` | _(empty)_ | Clerk OAuth Application client ID. |
 | `covergeist.clerkFrontendApiUrl` | _(empty)_ | Clerk frontend API URL. |
-| `covergeist.billingUrl` | `https://covergeist.com/billing` | URL opened when the user clicks Upgrade. |
+| `covergeist.billingUrl` | `https://covergeist.dev/billing` | URL opened when the user clicks Upgrade. |
 
 ## Privacy
 
