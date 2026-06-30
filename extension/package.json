@@ -51,7 +51,7 @@
       "properties": {
         "covergeist.apiUrl": {
           "type": "string",
-          "default": "https://api.covergeist.dev",
+          "default": "https://covergeist-production.up.railway.app",
           "description": "Backend API URL. Override for local development (e.g. http://localhost:3000)."
         },
         "covergeist.clerkOAuthClientId": {

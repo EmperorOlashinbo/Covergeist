@@ -149,7 +149,7 @@ To recompile after changes: **Ctrl+Shift+F5** (Restart) or just save — if you 
 
 ## 7. Configure the extension for local development
 
-The extension's default `apiUrl` points to `https://api.covergeist.dev`. For local development, override it in VS Code settings.
+The extension's default `apiUrl` points to `https://covergeist-production.up.railway.app`. For local development, override it in VS Code settings.
 
 Open **File → Preferences → Settings** (or `Ctrl+,`) and search for `covergeist`. Set:
 

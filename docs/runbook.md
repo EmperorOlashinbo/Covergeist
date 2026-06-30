@@ -4,7 +4,7 @@
 
 | Service | Platform | URL / location |
 |---|---|---|
-| Backend API | Railway | `https://api.covergeist.dev` (configure custom domain in Railway) |
+| Backend API | Railway | `https://covergeist-production.up.railway.app` (configure custom domain in Railway) |
 | Database | Neon | Neon console → project "covergeist" |
 | Auth | Clerk | Clerk dashboard → application "covergeist" |
 | Billing | Stripe | Stripe dashboard → account |
@@ -56,7 +56,7 @@ These steps require human accounts. Complete them before any deployment.
 1. Sign up at https://stripe.com
 2. In **Developers → API keys**, copy the **Secret key** → `STRIPE_SECRET_KEY`
 3. In **Developers → Webhooks**, add an endpoint:
-   - URL: `https://api.covergeist.dev/v1/webhooks/stripe`
+   - URL: `https://covergeist-production.up.railway.app/v1/webhooks/stripe`
    - Events: `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`
 4. Copy the **Signing secret** → `STRIPE_WEBHOOK_SECRET`
 
@@ -98,7 +98,7 @@ railway up --service covergeist-backend
 ### Verify the deploy
 
 ```bash
-curl https://api.covergeist.dev/health
+curl https://covergeist-production.up.railway.app/health
 # expected: {"status":"ok"}
 ```
 
