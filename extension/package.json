@@ -2,21 +2,32 @@
   "name": "covergeist",
   "displayName": "Covergeist",
   "description": "Find untested code and generate tests for it — right inside your editor.",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "publisher": "covergeist",
   "private": true,
   "engines": {
     "vscode": "^1.90.0"
   },
-  "categories": ["Testing"],
-  "keywords": ["coverage", "testing", "jest", "vitest", "typescript", "ai"],
+  "categories": [
+    "Testing"
+  ],
+  "keywords": [
+    "coverage",
+    "testing",
+    "jest",
+    "vitest",
+    "typescript",
+    "ai"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/covergeist/covergeist"
   },
   "license": "MIT",
   "icon": "assets/icon.png",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "scripts": {
     "build": "tsc",
