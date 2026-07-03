@@ -81,10 +81,13 @@ export class TypeScriptAdapter implements LanguageAdapter {
 
       if (line.startsWith('SF:')) {
         const rawPath = line.slice(3);
-        // Istanbul writes relative paths; v8 writes absolute — normalise to absolute
-        currentPath = path.isAbsolute(rawPath)
+        // Istanbul writes relative paths; v8 writes absolute — normalise to absolute.
+        // path.normalize converts forward slashes to backslashes on Windows so the
+        // key matches editor.document.uri.fsPath which always uses OS separators.
+        const resolved = path.isAbsolute(rawPath)
           ? rawPath
           : path.resolve(path.dirname(path.dirname(lcovPath)), rawPath);
+        currentPath = path.normalize(resolved);
         lines = new Map();
         functions = new Map();
       } else if (line.startsWith('DA:')) {

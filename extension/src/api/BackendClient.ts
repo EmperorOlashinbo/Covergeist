@@ -98,7 +98,12 @@ export class BackendClient {
     }
 
     if (!response.ok) {
-      throw new NetworkError(`Request failed with status ${response.status}`);
+      let detail = '';
+      try {
+        const body = await response.json() as { error?: string; detail?: string };
+        detail = body.detail ?? body.error ?? '';
+      } catch { /* ignore parse errors */ }
+      throw new NetworkError(detail || `Request failed with status ${response.status}`);
     }
 
     return response.json() as Promise<T>;

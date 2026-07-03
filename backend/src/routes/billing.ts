@@ -14,51 +14,58 @@ export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const priceId = process.env.STRIPE_PRICE_ID;
       if (!priceId) {
-        return reply.status(500).send({ error: 'billing_not_configured' });
+        return reply.status(500).send({
+          error: 'billing_not_configured',
+          detail: 'STRIPE_PRICE_ID is not set on the server.',
+        });
       }
 
       const { clerkId, email, userId } = request.user;
 
-      // Reuse existing Stripe customer if we already have one in our DB
-      let customerId: string | undefined;
-      const [existingSub] = await db
-        .select({ stripeCustomerId: subscriptions.stripeCustomerId })
-        .from(subscriptions)
-        .where(eq(subscriptions.userId, userId))
-        .limit(1);
+      try {
+        let customerId: string | undefined;
+        const [existingSub] = await db
+          .select({ stripeCustomerId: subscriptions.stripeCustomerId })
+          .from(subscriptions)
+          .where(eq(subscriptions.userId, userId))
+          .limit(1);
 
-      if (existingSub) {
-        customerId = existingSub.stripeCustomerId;
-      } else {
-        // Search Stripe for an existing customer created by a prior checkout attempt
-        const existing = await stripe.customers.search({
-          query: `metadata['clerk_id']:'${clerkId}'`,
-          limit: 1,
-        });
-        if (existing.data.length > 0) {
-          customerId = existing.data[0].id;
+        if (existingSub) {
+          customerId = existingSub.stripeCustomerId;
         } else {
-          const customer = await stripe.customers.create({
-            email,
-            metadata: { clerk_id: clerkId },
+          const existing = await stripe.customers.search({
+            query: `metadata['clerk_id']:'${clerkId}'`,
+            limit: 1,
           });
-          customerId = customer.id;
+          if (existing.data.length > 0) {
+            customerId = existing.data[0].id;
+          } else {
+            const customer = await stripe.customers.create({
+              email,
+              metadata: { clerk_id: clerkId },
+            });
+            customerId = customer.id;
+          }
         }
+
+        const session = await stripe.checkout.sessions.create({
+          customer: customerId,
+          mode: 'subscription',
+          line_items: [{ price: priceId, quantity: 1 }],
+          success_url:
+            process.env.STRIPE_SUCCESS_URL ??
+            'https://covergeist.dev/billing/success',
+          cancel_url:
+            process.env.STRIPE_CANCEL_URL ??
+            'https://covergeist.dev/billing/cancel',
+        });
+
+        return reply.status(200).send({ url: session.url });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        fastify.log.error({ err }, `Stripe checkout failed: ${detail}`);
+        return reply.status(500).send({ error: 'checkout_failed', detail });
       }
-
-      const session = await stripe.checkout.sessions.create({
-        customer: customerId,
-        mode: 'subscription',
-        line_items: [{ price: priceId, quantity: 1 }],
-        success_url:
-          process.env.STRIPE_SUCCESS_URL ??
-          'https://covergeist.dev/billing/success',
-        cancel_url:
-          process.env.STRIPE_CANCEL_URL ??
-          'https://covergeist.dev/billing/cancel',
-      });
-
-      return reply.status(200).send({ url: session.url });
     },
   );
 }

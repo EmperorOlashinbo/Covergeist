@@ -64,6 +64,10 @@ export class CoverageService implements vscode.Disposable {
       for (const listener of this.listeners) {
         listener(map, projectRoot);
       }
+      const fileCount = map.files.size;
+      void vscode.window.showInformationMessage(
+        `Covergeist: Scan complete — ${fileCount} file${fileCount === 1 ? '' : 's'} analysed. Uncovered lines are highlighted in red.`,
+      );
     } catch (err) {
       if (controller.signal.aborted) {
         void vscode.window.showErrorMessage(
