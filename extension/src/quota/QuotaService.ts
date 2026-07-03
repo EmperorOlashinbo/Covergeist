@@ -22,11 +22,15 @@ export class QuotaService implements vscode.Disposable {
         {},
       );
       await vscode.env.openExternal(vscode.Uri.parse(url));
-    } catch {
-      const fallback =
-        vscode.workspace.getConfiguration('covergeist').get<string>('billingUrl') ??
-        'https://covergeist.dev/billing';
-      await vscode.env.openExternal(vscode.Uri.parse(fallback));
+    } catch (err) {
+      if (err instanceof AuthError) {
+        // BackendClient already showed "Session expired — please sign in."
+        return;
+      }
+      const detail = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(
+        `Covergeist: Could not start checkout — ${detail}`,
+      );
     }
   }
 
