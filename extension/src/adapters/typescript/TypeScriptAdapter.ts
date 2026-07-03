@@ -273,7 +273,8 @@ export class TypeScriptAdapter implements LanguageAdapter {
         return;
       }
 
-      const child = spawn(cmd, args, { cwd, stdio: 'pipe' });
+      const isWindows = process.platform === 'win32';
+      const child = spawn(cmd, args, { cwd, stdio: 'pipe', shell: isWindows });
 
       const onAbort = (): void => {
         child.kill();
