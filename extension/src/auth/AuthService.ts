@@ -18,11 +18,14 @@ interface AuthConfig {
   frontendApiUrl: string;
 }
 
+const DEFAULT_CLERK_CLIENT_ID = '8G4PQVhXkQzquLMV';
+const DEFAULT_CLERK_FRONTEND_URL = 'https://literate-ocelot-4.clerk.accounts.dev';
+
 function getClerkConfig(): AuthConfig {
   const cfg = vscode.workspace.getConfiguration('covergeist');
   return {
-    oauthClientId: cfg.get<string>('clerkOAuthClientId') ?? '',
-    frontendApiUrl: cfg.get<string>('clerkFrontendApiUrl') ?? '',
+    oauthClientId: cfg.get<string>('clerkOAuthClientId') || DEFAULT_CLERK_CLIENT_ID,
+    frontendApiUrl: cfg.get<string>('clerkFrontendApiUrl') || DEFAULT_CLERK_FRONTEND_URL,
   };
 }
 

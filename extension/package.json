@@ -67,13 +67,13 @@
         },
         "covergeist.clerkOAuthClientId": {
           "type": "string",
-          "default": "",
-          "description": "Clerk OAuth Application client_id. Create one in Clerk Dashboard → Configure → OAuth Applications."
+          "default": "8G4PQVhXkQzquLMV",
+          "description": "Clerk OAuth Application client_id."
         },
         "covergeist.clerkFrontendApiUrl": {
           "type": "string",
-          "default": "",
-          "description": "Clerk frontend API URL (e.g. https://your-instance.clerk.accounts.dev)."
+          "default": "https://literate-ocelot-4.clerk.accounts.dev",
+          "description": "Clerk frontend API URL."
         },
         "covergeist.billingUrl": {
           "type": "string",
