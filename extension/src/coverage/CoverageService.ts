@@ -65,6 +65,20 @@ export class CoverageService implements vscode.Disposable {
         listener(map, projectRoot);
       }
       const fileCount = map.files.size;
+      if (fileCount === 0) {
+        const choice = await vscode.window.showWarningMessage(
+          'Covergeist: Coverage ran but found 0 files. ' +
+          'Jest needs test files that import your source code. ' +
+          'Also add "collectCoverageFrom": ["src/**/*.{ts,js}"] to your Jest config so all source files are tracked.',
+          'How to fix',
+        );
+        if (choice === 'How to fix') {
+          await vscode.env.openExternal(
+            vscode.Uri.parse('https://jestjs.io/docs/configuration#collectcoveragefrom-array'),
+          );
+        }
+        return;
+      }
       void vscode.window.showInformationMessage(
         `Covergeist: Scan complete — ${fileCount} file${fileCount === 1 ? '' : 's'} analysed. Uncovered lines are highlighted in red.`,
       );
