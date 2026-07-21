@@ -25,9 +25,8 @@ export interface LanguageAdapter {
   readonly displayName: string;
 
   canHandle(projectRoot: string): Promise<boolean>;
+  analyzeStatically(projectRoot: string): Promise<CoverageMap>;
   detectRunner(projectRoot: string): Promise<TestRunner | null>;
-  runCoverage(projectRoot: string, runner: TestRunner, signal?: AbortSignal): Promise<string>;
-  parseCoverage(lcovPath: string): Promise<CoverageMap>;
   extractSnippet(document: vscode.TextDocument, range: vscode.Range): Promise<CodeSnippet>;
   resolveTestFilePath(sourceFilePath: string, projectRoot: string): string;
 }

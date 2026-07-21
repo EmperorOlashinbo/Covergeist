@@ -11,12 +11,10 @@ import { GenerateTestCodeActionProvider } from './generation/GenerateTestCodeAct
 import { GenerationService } from './generation/GenerationService';
 import { QuotaService } from './quota/QuotaService';
 
-let statusBarItem: vscode.StatusBarItem | undefined;
-
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // --- Auth ---
   const authService = new AuthService(context);
-  await authService.initialize(); // silently restore session from SecretStorage
+  await authService.initialize();
 
   const backendClient = new BackendClient(authService);
 
@@ -26,7 +24,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const coverageService = new CoverageService(registry);
 
   // --- Status bar ---
-  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBarItem.text = '$(pulse) Covergeist';
   statusBarItem.tooltip = 'Covergeist — click to run a coverage scan';
   statusBarItem.command = 'covergeist.runScan';
@@ -34,10 +32,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // --- Quota ---
   const quotaService = new QuotaService(backendClient, statusBarItem);
-  await quotaService.refresh();
-
-  // Refresh quota whenever a session is established (sign-in or token restore)
-  authService.onDidSignIn(() => void quotaService.refresh());
 
   // --- Generation ---
   const generationService = new GenerationService(authService, backendClient, registry, quotaService);
@@ -51,25 +45,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     summaryProvider,
   );
 
+  // Helper: scan the current workspace
+  const runScan = async (): Promise<void> => {
+    const projectRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!projectRoot) {
+      void vscode.window.showInformationMessage('Open a workspace folder to run a coverage scan.');
+      return;
+    }
+    await coverageService.runScan(projectRoot);
+  };
+
   // --- Commands ---
-  const runScanCommand = vscode.commands.registerCommand(
-    'covergeist.runScan',
-    async () => {
-      const projectRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!projectRoot) {
-        void vscode.window.showInformationMessage(
-          'Open a workspace folder to run a coverage scan.',
-        );
-        return;
-      }
-      await coverageService.runScan(projectRoot);
-    },
-  );
+  const runScanCommand = vscode.commands.registerCommand('covergeist.runScan', runScan);
 
   const generateTestCommand = vscode.commands.registerCommand(
     'covergeist.generateTest',
     async (document: vscode.TextDocument, range: vscode.Range) => {
-      // Progress notification covers only the API call — dismissed before the diff opens
       let result: Awaited<ReturnType<typeof generationService.generateTest>>;
       try {
         result = await vscode.window.withProgress(
@@ -97,6 +88,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
 
+  const signInCommand = vscode.commands.registerCommand('covergeist.signIn', () => authService.signIn());
+  const signOutCommand = vscode.commands.registerCommand('covergeist.signOut', () => authService.signOut());
+
   const generateTestCodeActionProvider = vscode.languages.registerCodeActionsProvider(
     [
       { language: 'typescript' },
@@ -106,16 +100,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ],
     new GenerateTestCodeActionProvider(coverageService),
     { providedCodeActionKinds: GenerateTestCodeActionProvider.providedCodeActionKinds },
-  );
-
-  const signInCommand = vscode.commands.registerCommand(
-    'covergeist.signIn',
-    () => authService.signIn(),
-  );
-
-  const signOutCommand = vscode.commands.registerCommand(
-    'covergeist.signOut',
-    () => authService.signOut(),
   );
 
   context.subscriptions.push(
@@ -133,9 +117,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     signInCommand,
     signOutCommand,
   );
+
+  // --- Auto sign-in prompt & auto scan ---
+  // Run scan immediately if already signed in, otherwise prompt to sign in
+  if (authService.isSignedIn()) {
+    await quotaService.refresh();
+    void runScan();
+  } else {
+    const choice = await vscode.window.showInformationMessage(
+      'Welcome to Covergeist! Sign in to generate tests for uncovered code.',
+      'Sign In',
+      'Later',
+    );
+    if (choice === 'Sign In') {
+      void authService.signIn();
+    }
+  }
+
+  // After sign-in: refresh quota and auto-run scan
+  authService.onDidSignIn(async () => {
+    await quotaService.refresh();
+    void runScan();
+  });
 }
 
-export function deactivate(): void {
-  statusBarItem?.dispose();
-  statusBarItem = undefined;
-}
+export function deactivate(): void { /* nothing */ }

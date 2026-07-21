@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -16,6 +15,20 @@ interface PackageJson {
   scripts?: Record<string, string>;
 }
 
+const SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'out', 'build', '.next',
+  'coverage', '.cache', '.vscode', '.idea', '.turbo', 'vendor',
+]);
+const SRC_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx']);
+const TEST_RE = /\.(test|spec)\.(ts|tsx|js|jsx)$/;
+const SKIP_KEYWORDS = new Set([
+  'if', 'for', 'while', 'switch', 'catch', 'else', 'return',
+  'new', 'typeof', 'instanceof', 'void', 'delete', 'throw', 'case',
+  'await', 'yield', 'import', 'export', 'class', 'extends', 'super',
+  'describe', 'it', 'test', 'expect', 'beforeEach', 'afterEach',
+  'beforeAll', 'afterAll',
+]);
+
 export class TypeScriptAdapter implements LanguageAdapter {
   readonly id = 'typescript';
   readonly displayName = 'TypeScript / JavaScript';
@@ -24,113 +37,97 @@ export class TypeScriptAdapter implements LanguageAdapter {
     const pkg = this.readPackageJson(projectRoot);
     if (pkg) {
       const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
-      if ('typescript' in allDeps || 'ts-jest' in allDeps) {
-        return true;
+      if ('typescript' in allDeps || 'ts-jest' in allDeps) return true;
+    }
+    return this.hasSourceFiles(projectRoot);
+  }
+
+  // ── Static analysis (primary scan method) ──────────────────────────────────
+
+  async analyzeStatically(projectRoot: string): Promise<CoverageMap> {
+    const sourceFiles: string[] = [];
+    const testFiles: string[] = [];
+
+    const walk = (dir: string): void => {
+      let entries: fs.Dirent[];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+      catch { return; }
+      for (const e of entries) {
+        if (e.isDirectory()) {
+          if (!SKIP_DIRS.has(e.name)) walk(path.join(dir, e.name));
+        } else if (e.isFile() && SRC_EXTS.has(path.extname(e.name))) {
+          const full = path.normalize(path.join(dir, e.name));
+          if (TEST_RE.test(e.name)) {
+            testFiles.push(full);
+          } else {
+            sourceFiles.push(full);
+          }
+        }
       }
-    }
-    return this.hasSourceFiles(projectRoot, ['.ts', '.js']);
-  }
+    };
 
-  async detectRunner(projectRoot: string): Promise<TestRunner | null> {
-    const pkg = this.readPackageJson(projectRoot);
-    if (!pkg) return null;
+    walk(projectRoot);
 
-    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
-    const scriptValues = Object.values(pkg.scripts ?? {}).join(' ');
-
-    const hasJest = 'jest' in allDeps || scriptValues.includes('jest');
-    const hasVitest = 'vitest' in allDeps || scriptValues.includes('vitest');
-
-    // Jest takes precedence per ADR-1 when both are present
-    if (hasJest) return 'jest';
-    if (hasVitest) return 'vitest';
-    return null;
-  }
-
-  async runCoverage(
-    projectRoot: string,
-    runner: TestRunner,
-    signal?: AbortSignal,
-  ): Promise<string> {
-    const args =
-      runner === 'jest'
-        ? ['jest', '--coverage', '--passWithNoTests']
-        : ['vitest', 'run', '--coverage'];
-
-    await this.spawnCoverageProcess('npx', args, projectRoot, signal);
-
-    const lcovPath = path.join(projectRoot, 'coverage', 'lcov.info');
-    if (!fs.existsSync(lcovPath)) {
-      throw new Error(
-        `LCOV file not found at ${lcovPath}. Ensure coverage is configured to output LCOV format.`,
-      );
-    }
-    return lcovPath;
-  }
-
-  async parseCoverage(lcovPath: string): Promise<CoverageMap> {
-    const content = fs.readFileSync(lcovPath, 'utf8');
     const files = new Map<string, FileCoverage>();
 
-    let currentPath: string | null = null;
-    let lines: Map<number, boolean> = new Map();
-    let functions: Map<string, boolean> = new Map();
+    for (const sourceFile of sourceFiles) {
+      let content: string;
+      try { content = fs.readFileSync(sourceFile, 'utf8'); }
+      catch { continue; }
 
-    for (const raw of content.split('\n')) {
-      const line = raw.trim();
+      const fns = this.extractFunctionRanges(content);
+      if (fns.length === 0) continue;
 
-      if (line.startsWith('SF:')) {
-        const rawPath = line.slice(3);
-        // Istanbul writes relative paths; v8 writes absolute — normalise to absolute.
-        // path.normalize converts forward slashes to backslashes on Windows so the
-        // key matches editor.document.uri.fsPath which always uses OS separators.
-        const resolved = path.isAbsolute(rawPath)
-          ? rawPath
-          : path.resolve(path.dirname(path.dirname(lcovPath)), rawPath);
-        currentPath = path.normalize(resolved);
-        lines = new Map();
-        functions = new Map();
-      } else if (line.startsWith('DA:')) {
-        const rest = line.slice(3);
-        const comma = rest.indexOf(',');
-        if (comma !== -1) {
-          const lineNum = parseInt(rest.slice(0, comma), 10);
-          const hits = parseInt(rest.slice(comma + 1), 10);
-          if (!isNaN(lineNum)) lines.set(lineNum, hits > 0);
+      const relevantTests = this.findTestFilesForSource(sourceFile, testFiles);
+      const testContents = relevantTests
+        .map(tf => { try { return fs.readFileSync(tf, 'utf8'); } catch { return ''; } })
+        .join('\n');
+
+      const lines = new Map<number, boolean>();
+      const functions = new Map<string, boolean>();
+
+      for (const fn of fns) {
+        const covered =
+          testContents.length > 0 &&
+          new RegExp(`\\b${fn.name}\\b`).test(testContents);
+
+        functions.set(fn.name, covered);
+        for (let l = fn.startLine; l <= fn.endLine; l++) {
+          lines.set(l, covered);
         }
-      } else if (line.startsWith('FNDA:')) {
-        const rest = line.slice(5);
-        const comma = rest.indexOf(',');
-        if (comma !== -1) {
-          const hits = parseInt(rest.slice(0, comma), 10);
-          const fnName = rest.slice(comma + 1);
-          if (fnName) functions.set(fnName, hits > 0);
-        }
-      } else if (line === 'end_of_record' && currentPath !== null) {
-        files.set(currentPath, {
-          lines: new Map(lines),
-          functions: new Map(functions),
-        });
-        currentPath = null;
+      }
+
+      if (lines.size > 0) {
+        files.set(sourceFile, { lines, functions });
       }
     }
 
     return { files };
   }
 
+  // ── Runner detection (used for test generation prompts) ───────────────────
+
+  async detectRunner(projectRoot: string): Promise<TestRunner | null> {
+    const pkg = this.readPackageJson(projectRoot);
+    if (!pkg) return null;
+    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+    const scriptValues = Object.values(pkg.scripts ?? {}).join(' ');
+    if ('jest' in allDeps || scriptValues.includes('jest')) return 'jest';
+    if ('vitest' in allDeps || scriptValues.includes('vitest')) return 'vitest';
+    return null;
+  }
+
+  // ── Snippet extraction for test generation ────────────────────────────────
+
   resolveTestFilePath(sourceFilePath: string, projectRoot: string): string {
     const dir = path.dirname(sourceFilePath);
     const ext = path.extname(sourceFilePath);
     const base = path.basename(sourceFilePath, ext);
-
-    // Look for a __tests__ directory in the parent of the source file's directory
     const parentDir = path.dirname(dir);
     const candidateTestsDir = path.join(parentDir, '__tests__');
-
     if (fs.existsSync(path.join(projectRoot, candidateTestsDir))) {
       return path.join(parentDir, '__tests__', `${base}.test${ext}`).replace(/\\/g, '/');
     }
-
     return path.join(dir, `${base}.test${ext}`).replace(/\\/g, '/');
   }
 
@@ -140,10 +137,8 @@ export class TypeScriptAdapter implements LanguageAdapter {
   ): Promise<CodeSnippet> {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
     const projectRoot = workspaceFolder?.uri.fsPath ?? path.dirname(document.uri.fsPath);
+    const runner = (await this.detectRunner(projectRoot)) ?? 'vitest';
 
-    const runner = (await this.detectRunner(projectRoot)) ?? 'jest';
-
-    // Primary path: use VS Code's document symbol provider for accurate boundaries
     let fnRange: vscode.Range;
     let functionName: string;
 
@@ -158,40 +153,119 @@ export class TypeScriptAdapter implements LanguageAdapter {
         functionName = sym.name;
       } else {
         const bounds = this.inferFunctionBounds(document, range.start.line);
-        fnRange = new vscode.Range(
-          bounds.startLine, 0,
-          bounds.endLine, document.lineAt(bounds.endLine).text.length,
-        );
+        fnRange = new vscode.Range(bounds.startLine, 0, bounds.endLine, document.lineAt(bounds.endLine).text.length);
         functionName = bounds.name;
       }
     } catch {
       const bounds = this.inferFunctionBounds(document, range.start.line);
-      fnRange = new vscode.Range(
-        bounds.startLine, 0,
-        bounds.endLine, document.lineAt(bounds.endLine).text.length,
-      );
+      fnRange = new vscode.Range(bounds.startLine, 0, bounds.endLine, document.lineAt(bounds.endLine).text.length);
       functionName = bounds.name;
     }
 
     let snippetCode = document.getText(fnRange);
     if (snippetCode.length > 8000) snippetCode = snippetCode.slice(0, 8000);
 
-    // Up to 5 lines before + 5 lines after the function = up to 10 context lines
     const beforeStart = Math.max(0, fnRange.start.line - 5);
     const afterEnd = Math.min(document.lineCount - 1, fnRange.end.line + 5);
     const contextLines: string[] = [];
-    for (let i = beforeStart; i < fnRange.start.line; i++) {
-      contextLines.push(document.lineAt(i).text);
-    }
-    for (let i = fnRange.end.line + 1; i <= afterEnd; i++) {
-      contextLines.push(document.lineAt(i).text);
-    }
+    for (let i = beforeStart; i < fnRange.start.line; i++) contextLines.push(document.lineAt(i).text);
+    for (let i = fnRange.end.line + 1; i <= afterEnd; i++) contextLines.push(document.lineAt(i).text);
     let contextCode = contextLines.join('\n');
     if (contextCode.length > 2000) contextCode = contextCode.slice(0, 2000);
 
     const relativeFilePath = path.relative(projectRoot, document.uri.fsPath).replace(/\\/g, '/');
 
     return { language: 'typescript', runner, functionName, snippetCode, contextCode, relativeFilePath };
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
+
+  private findTestFilesForSource(sourceFile: string, allTestFiles: string[]): string[] {
+    const base = path.basename(sourceFile, path.extname(sourceFile));
+    return allTestFiles.filter(tf => {
+      const tfBase = path.basename(tf, path.extname(tf)).replace(/\.(test|spec)$/, '');
+      return tfBase === base;
+    });
+  }
+
+  private extractFunctionRanges(
+    content: string,
+  ): Array<{ name: string; startLine: number; endLine: number }> {
+    const lines = content.split('\n');
+    const results: Array<{ name: string; startLine: number; endLine: number }> = [];
+
+    const PATTERNS: RegExp[] = [
+      // Named function declarations: (export) (async) function name(
+      /^[ \t]*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*[(<]/,
+      // Arrow / expression: (export) const name = (async) (
+      /^[ \t]*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s+)?(?:\(|[A-Za-z_$][A-Za-z0-9_$]*\s*=>)/,
+      // Class methods: (modifiers) name(
+      /^[ \t]+(?:(?:public|private|protected|static|abstract|override|async|readonly|get|set)\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/,
+    ];
+
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i];
+      const trimmed = raw.trim();
+
+      if (
+        !trimmed ||
+        trimmed.startsWith('//') || trimmed.startsWith('*') ||
+        trimmed.startsWith('/*') || trimmed.startsWith('@') ||
+        trimmed.startsWith('import ') || trimmed.startsWith('export type') ||
+        trimmed.startsWith('type ') || trimmed.startsWith('interface ')
+      ) continue;
+
+      let name: string | null = null;
+      for (const pat of PATTERNS) {
+        const m = pat.exec(raw);
+        if (m?.[1] && !SKIP_KEYWORDS.has(m[1])) {
+          name = m[1];
+          break;
+        }
+      }
+      if (!name) continue;
+
+      // Brace-count to find the end of the function body
+      let depth = 0;
+      let started = false;
+      let endLine = i;
+
+      outer:
+      for (let j = i; j < Math.min(i + 500, lines.length); j++) {
+        const l = lines[j];
+        let inStr = false;
+        let strCh = '';
+        for (let k = 0; k < l.length; k++) {
+          const ch = l[k];
+          if (inStr) {
+            if (ch === strCh && l[k - 1] !== '\\') inStr = false;
+            continue;
+          }
+          if (ch === '"' || ch === "'" || ch === '`') { inStr = true; strCh = ch; continue; }
+          if (ch === '/' && l[k + 1] === '/') break;
+          if (ch === '{') { depth++; started = true; }
+          else if (ch === '}') {
+            depth--;
+            if (started && depth === 0) { endLine = j; break outer; }
+          }
+        }
+      }
+
+      // Expression-body arrow: const f = () => value (no braces)
+      if (!started) {
+        const combined = lines.slice(i, Math.min(i + 3, lines.length)).join(' ');
+        if (/=>\s*[^{\n]/.test(combined)) {
+          results.push({ name, startLine: i + 1, endLine: i + 1 });
+          continue;
+        }
+      }
+
+      if (started) {
+        results.push({ name, startLine: i + 1, endLine: endLine + 1 });
+      }
+    }
+
+    return results;
   }
 
   private findInnermostFunctionSymbol(
@@ -203,9 +277,7 @@ export class TypeScriptAdapter implements LanguageAdapter {
       vscode.SymbolKind.Method,
       vscode.SymbolKind.Constructor,
     ]);
-
     let best: vscode.DocumentSymbol | null = null;
-
     const search = (syms: vscode.DocumentSymbol[]): void => {
       for (const sym of syms) {
         if (sym.range.contains(range)) {
@@ -216,7 +288,6 @@ export class TypeScriptAdapter implements LanguageAdapter {
         }
       }
     };
-
     search(symbols);
     return best;
   }
@@ -225,7 +296,6 @@ export class TypeScriptAdapter implements LanguageAdapter {
     document: vscode.TextDocument,
     targetLine: number,
   ): { startLine: number; endLine: number; name: string } {
-    // Walk backward to find a function declaration line
     let startLine = targetLine;
     for (let i = targetLine; i >= Math.max(0, targetLine - 30); i--) {
       const text = document.lineAt(i).text;
@@ -234,8 +304,6 @@ export class TypeScriptAdapter implements LanguageAdapter {
         break;
       }
     }
-
-    // Brace-count forward to find closing brace
     let depth = 0;
     let endLine = targetLine;
     let started = false;
@@ -246,83 +314,35 @@ export class TypeScriptAdapter implements LanguageAdapter {
       }
       if (started && depth === 0) { endLine = i; break; }
     }
-
-    // Extract function name from the declaration line
     const startText = document.lineAt(startLine).text.trim();
     let name = 'unknownFunction';
     let m: RegExpExecArray | null;
-    if ((m = /function\s+(\w+)/.exec(startText))) {
-      name = m[1];
-    } else if ((m = /(?:const|let|var)\s+(\w+)\s*=/.exec(startText))) {
-      name = m[1];
-    } else if ((m = /(?:(?:public|private|protected|static|override|abstract|async)\s+)+(\w+)\s*\(/.exec(startText))) {
-      name = m[1];
-    } else if ((m = /^(\w+)\s*\(/.exec(startText))) {
-      name = m[1];
-    }
-
+    if ((m = /function\s+(\w+)/.exec(startText))) name = m[1];
+    else if ((m = /(?:const|let|var)\s+(\w+)\s*=/.exec(startText))) name = m[1];
+    else if ((m = /(?:(?:public|private|protected|static|override|abstract|async)\s+)+(\w+)\s*\(/.exec(startText))) name = m[1];
+    else if ((m = /^(\w+)\s*\(/.exec(startText))) name = m[1];
     return { startLine, endLine, name };
-  }
-
-  private spawnCoverageProcess(
-    cmd: string,
-    args: string[],
-    cwd: string,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(new Error('Coverage scan aborted before starting'));
-        return;
-      }
-
-      const isWindows = process.platform === 'win32';
-      const child = spawn(cmd, args, { cwd, stdio: 'pipe', shell: isWindows });
-
-      const onAbort = (): void => {
-        child.kill();
-        reject(new Error('Coverage scan terminated after timeout'));
-      };
-
-      signal?.addEventListener('abort', onAbort);
-
-      child.on('close', () => {
-        signal?.removeEventListener('abort', onAbort);
-        // Resolve regardless of exit code — failing tests still write coverage
-        resolve();
-      });
-
-      child.on('error', err => {
-        signal?.removeEventListener('abort', onAbort);
-        reject(err);
-      });
-    });
   }
 
   private readPackageJson(projectRoot: string): PackageJson | null {
     try {
-      const content = fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8');
-      return JSON.parse(content) as PackageJson;
-    } catch {
-      return null;
-    }
+      return JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')) as PackageJson;
+    } catch { return null; }
   }
 
-  private hasSourceFiles(dir: string, extensions: string[]): boolean {
+  private hasSourceFiles(dir: string): boolean {
     try {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (['node_modules', 'dist', 'out', '.git'].includes(entry.name)) continue;
-        if (entry.isFile() && extensions.some(ext => entry.name.endsWith(ext))) return true;
+        if (SKIP_DIRS.has(entry.name)) continue;
+        if (entry.isFile() && SRC_EXTS.has(path.extname(entry.name))) return true;
         if (entry.isDirectory()) {
           const sub = path.join(dir, entry.name);
           for (const child of fs.readdirSync(sub, { withFileTypes: true })) {
-            if (child.isFile() && extensions.some(ext => child.name.endsWith(ext))) return true;
+            if (child.isFile() && SRC_EXTS.has(path.extname(child.name))) return true;
           }
         }
       }
-    } catch {
-      // ignore permission errors
-    }
+    } catch { /* ignore */ }
     return false;
   }
 }
