@@ -67,8 +67,12 @@ export class BackendClient {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(15_000),
       });
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        throw new NetworkError('Request timed out — please try again.');
+      }
       throw new NetworkError(
         'Covergeist: backend unreachable — check your connection.',
       );

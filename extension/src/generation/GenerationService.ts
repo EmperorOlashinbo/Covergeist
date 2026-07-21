@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { GenerateResponse, SubscriptionResponse } from '@covergeist/shared';
 import type { AdapterRegistry } from '../adapters/AdapterRegistry';
+import type { CodeSnippet } from '../adapters/LanguageAdapter';
 import { QuotaError, SubscriptionError } from '../api/BackendClient';
 import type { BackendClient } from '../api/BackendClient';
 import type { AuthService } from '../auth/AuthService';
@@ -14,10 +15,16 @@ export class GenerationService {
     private readonly quotaService: QuotaService,
   ) {}
 
-  async generateTest(
+  /**
+   * Auth + subscription checks and snippet extraction.
+   * No progress spinner — runs before the AI call.
+   * Returns the snippet if ready to generate, null if blocked (prompt already shown).
+   */
+  async checkAndPrepare(
     document: vscode.TextDocument,
     range: vscode.Range,
-  ): Promise<GenerateResponse | null> {
+    onSubscribed: () => void,
+  ): Promise<CodeSnippet | null> {
     // 1. Auth gate
     const token = await this.authService.getAccessToken();
     if (!token) {
@@ -29,43 +36,43 @@ export class GenerationService {
       return null;
     }
 
-    // 2. Subscription gate — GET /v1/subscription returns {status:'none'} when not subscribed
+    // 2. Subscription gate
     try {
       const sub = await this.client.get<SubscriptionResponse>('/v1/subscription');
       if (sub.status !== 'active' && sub.status !== 'trialing') {
-        await this.quotaService.showUpgradePrompt('no-subscription');
+        await this.quotaService.showUpgradePrompt('no-subscription', onSubscribed);
         return null;
       }
     } catch (err) {
       if (err instanceof SubscriptionError) {
-        await this.quotaService.showUpgradePrompt('no-subscription');
+        await this.quotaService.showUpgradePrompt('no-subscription', onSubscribed);
         return null;
       }
       throw err;
     }
 
-    // 3. Resolve adapter and extract snippet
+    // 3. Extract snippet
     const projectRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
     if (!projectRoot) return null;
 
     const adapter = await this.registry.resolve(projectRoot);
     if (!adapter) return null;
 
-    const snippet = await adapter.extractSnippet(document, range);
+    return adapter.extractSnippet(document, range);
+  }
 
-    // 4. POST snippet to backend — handle quota exhaustion
-    let result: GenerateResponse;
+  /**
+   * The actual AI generation call — run this inside withProgress.
+   */
+  async generate(snippet: CodeSnippet): Promise<GenerateResponse | null> {
     try {
-      result = await this.client.post<GenerateResponse>('/v1/generate', { snippet });
+      return await this.client.post<GenerateResponse>('/v1/generate', { snippet });
     } catch (err) {
       if (err instanceof QuotaError) {
-        await this.quotaService.showUpgradePrompt();
+        await this.quotaService.showUpgradePrompt('quota-exhausted');
         return null;
       }
       throw err;
     }
-
-    return result;
   }
-
 }

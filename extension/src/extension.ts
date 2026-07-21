@@ -61,15 +61,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const generateTestCommand = vscode.commands.registerCommand(
     'covergeist.generateTest',
     async (document: vscode.TextDocument, range: vscode.Range) => {
-      let result: Awaited<ReturnType<typeof generationService.generateTest>>;
+      // Retry callback: called automatically when subscription activates
+      const retry = (): void => {
+        void vscode.commands.executeCommand('covergeist.generateTest', document, range);
+      };
+
+      // Step 1: auth + subscription checks — no spinner yet
+      const snippet = await generationService.checkAndPrepare(document, range, retry);
+      if (!snippet) return;
+
+      // Step 2: AI call — spinner only shows here
+      let result: Awaited<ReturnType<typeof generationService.generate>>;
       try {
         result = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: 'Covergeist: Generating test…', cancellable: false },
-          () => generationService.generateTest(document, range),
+          () => generationService.generate(snippet),
         );
       } catch (err) {
         if (err instanceof NetworkError) {
-          const msg = err.message.includes('504')
+          const msg = err.message.includes('504') || err.message.includes('timed out')
             ? 'Generation timed out — please try again.'
             : err.message;
           void vscode.window.showErrorMessage(msg);

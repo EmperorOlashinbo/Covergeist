@@ -60,7 +60,10 @@ export class QuotaService implements vscode.Disposable {
     return this.lastQuota;
   }
 
-  async showUpgradePrompt(reason: 'no-subscription' | 'quota-exhausted' = 'quota-exhausted'): Promise<void> {
+  async showUpgradePrompt(
+    reason: 'no-subscription' | 'quota-exhausted' = 'quota-exhausted',
+    onSubscribed?: () => void,
+  ): Promise<void> {
     const [message, button] =
       reason === 'no-subscription'
         ? ['Subscribe to Covergeist to generate tests.', 'Subscribe']
@@ -70,7 +73,7 @@ export class QuotaService implements vscode.Disposable {
     if (choice !== button) return;
 
     await this.openCheckout();
-    this.startSubscriptionPolling();
+    this.startSubscriptionPolling(onSubscribed);
   }
 
   dispose(): void {
@@ -79,13 +82,13 @@ export class QuotaService implements vscode.Disposable {
 
   // ── Subscription polling ────────────────────────────────────────────────────
 
-  private startSubscriptionPolling(): void {
+  private startSubscriptionPolling(onSubscribed?: () => void): void {
     this.stopPolling();
     this.pollStart = Date.now();
-    this.pollTimer = setInterval(() => void this.pollSubscription(), POLL_INTERVAL_MS);
+    this.pollTimer = setInterval(() => void this.pollSubscription(onSubscribed), POLL_INTERVAL_MS);
   }
 
-  private async pollSubscription(): Promise<void> {
+  private async pollSubscription(onSubscribed?: () => void): Promise<void> {
     if (Date.now() - this.pollStart > POLL_MAX_MS) {
       this.stopPolling();
       return;
@@ -95,9 +98,16 @@ export class QuotaService implements vscode.Disposable {
       if (sub.status === 'active') {
         this.stopPolling();
         await this.refresh();
-        void vscode.window.showInformationMessage(
-          'Covergeist: Subscription activated — you can now generate tests!',
-        );
+        if (onSubscribed) {
+          void vscode.window.showInformationMessage(
+            'Covergeist: Subscription activated — generating your test now!',
+          );
+          onSubscribed();
+        } else {
+          void vscode.window.showInformationMessage(
+            'Covergeist: Subscription activated — you can now generate tests!',
+          );
+        }
       }
     } catch (err) {
       if (err instanceof AuthError) this.stopPolling();
