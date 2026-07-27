@@ -94,8 +94,9 @@ export class QuotaService implements vscode.Disposable {
       return;
     }
     try {
-      const sub = await this.client.get<SubscriptionResponse>('/v1/subscription');
-      if (sub.status === 'active') {
+      // Use the sync endpoint so we catch subscriptions even if the webhook was missed
+      const sub = await this.client.post<SubscriptionResponse>('/v1/subscription/sync', {});
+      if (sub.status === 'active' || sub.status === 'trialing') {
         this.stopPolling();
         await this.refresh();
         if (onSubscribed) {

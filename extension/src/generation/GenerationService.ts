@@ -37,18 +37,28 @@ export class GenerationService {
     }
 
     // 2. Subscription gate
+    // First check the DB (fast). If not active, sync with Stripe in case the
+    // webhook was missed — this lets users who already paid skip the prompt.
+    let isActive = false;
     try {
       const sub = await this.client.get<SubscriptionResponse>('/v1/subscription');
-      if (sub.status !== 'active' && sub.status !== 'trialing') {
-        await this.quotaService.showUpgradePrompt('no-subscription', onSubscribed);
-        return null;
-      }
+      isActive = sub.status === 'active' || sub.status === 'trialing';
     } catch (err) {
-      if (err instanceof SubscriptionError) {
-        await this.quotaService.showUpgradePrompt('no-subscription', onSubscribed);
-        return null;
+      if (!(err instanceof SubscriptionError)) throw err;
+    }
+
+    if (!isActive) {
+      try {
+        const synced = await this.client.post<SubscriptionResponse>('/v1/subscription/sync', {});
+        isActive = synced.status === 'active' || synced.status === 'trialing';
+      } catch {
+        // Sync failed — fall through to upgrade prompt
       }
-      throw err;
+    }
+
+    if (!isActive) {
+      await this.quotaService.showUpgradePrompt('no-subscription', onSubscribed);
+      return null;
     }
 
     // 3. Extract snippet
