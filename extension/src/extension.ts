@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AdapterRegistry } from './adapters/AdapterRegistry';
 import { TypeScriptAdapter } from './adapters/typescript/TypeScriptAdapter';
-import { BackendClient, NetworkError } from './api/BackendClient';
+import { BackendClient } from './api/BackendClient';
 import { AuthService } from './auth/AuthService';
 import { CoverageSummaryProvider } from './coverage/CoverageSummaryProvider';
 import { CoverageService } from './coverage/CoverageService';
@@ -78,14 +78,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           () => generationService.generate(snippet),
         );
       } catch (err) {
-        if (err instanceof NetworkError) {
-          const msg = err.message.includes('504') || err.message.includes('timed out')
-            ? 'Generation timed out — please try again.'
-            : err.message;
-          void vscode.window.showErrorMessage(msg);
-          return;
-        }
-        throw err;
+        void vscode.window.showErrorMessage(
+          `Covergeist: Unexpected error — ${(err as Error).message}`,
+        );
+        return;
       }
 
       if (!result) return;

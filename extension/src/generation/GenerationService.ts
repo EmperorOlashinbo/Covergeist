@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { GenerateResponse, SubscriptionResponse } from '@covergeist/shared';
 import type { AdapterRegistry } from '../adapters/AdapterRegistry';
 import type { CodeSnippet } from '../adapters/LanguageAdapter';
-import { QuotaError, SubscriptionError } from '../api/BackendClient';
+import { QuotaError, SubscriptionError, NetworkError } from '../api/BackendClient';
 import type { BackendClient } from '../api/BackendClient';
 import type { AuthService } from '../auth/AuthService';
 import type { QuotaService } from '../quota/QuotaService';
@@ -80,6 +80,24 @@ export class GenerationService {
     } catch (err) {
       if (err instanceof QuotaError) {
         await this.quotaService.showUpgradePrompt('quota-exhausted');
+        return null;
+      }
+      if (err instanceof SubscriptionError) {
+        // Quota middleware blocked the request — subscription exists but wasn't
+        // reflected in the DB yet. Prompt sync + retry.
+        await this.quotaService.showUpgradePrompt('no-subscription');
+        return null;
+      }
+      if (err instanceof NetworkError) {
+        const isTimeout =
+          err.message.includes('llm_timeout') ||
+          err.message.includes('timed out') ||
+          err.message.includes('504');
+        void vscode.window.showErrorMessage(
+          isTimeout
+            ? 'Covergeist: Generation timed out — please try again.'
+            : `Covergeist: Generation failed — ${err.message}`,
+        );
         return null;
       }
       throw err;

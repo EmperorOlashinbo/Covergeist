@@ -67,7 +67,7 @@ export class BackendClient {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(60_000),
       });
     } catch (err) {
       if (err instanceof Error && err.name === 'TimeoutError') {

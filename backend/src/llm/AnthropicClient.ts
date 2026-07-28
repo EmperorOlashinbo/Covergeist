@@ -16,7 +16,7 @@ interface AnthropicResponse {
 
 export class AnthropicClient {
   private static readonly MODEL = 'claude-3-5-haiku-20241022';
-  private static readonly TIMEOUT_MS = 12_000;
+  private static readonly TIMEOUT_MS = 45_000;
   private static readonly MAX_TOKENS = 1024;
 
   constructor(private readonly apiKey: string) {}
