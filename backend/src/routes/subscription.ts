@@ -115,28 +115,33 @@ export async function subscriptionRoutes(fastify: FastifyInstance): Promise<void
       }
 
       // ── Step 3: upsert so DB is correct for future requests ───────────────
-      await db
-        .insert(subscriptions)
-        .values({
-          userId: resolvedUserId,
-          stripeCustomerId: customerId,
-          stripeSubscriptionId: s.id,
-          status: s.status,
-          currentPeriodStart: periodStart,
-          currentPeriodEnd: periodEnd,
-        })
-        .onConflictDoUpdate({
-          target: subscriptions.stripeCustomerId,
-          set: {
-            status: s.status,
+      // stripeSubscriptionId has the unique constraint (not stripeCustomerId)
+      try {
+        await db
+          .insert(subscriptions)
+          .values({
+            userId: resolvedUserId,
+            stripeCustomerId: customerId,
             stripeSubscriptionId: s.id,
+            status: s.status,
             currentPeriodStart: periodStart,
             currentPeriodEnd: periodEnd,
-            updatedAt: new Date(),
-          },
-        });
+          })
+          .onConflictDoUpdate({
+            target: subscriptions.stripeSubscriptionId,
+            set: {
+              status: s.status,
+              currentPeriodStart: periodStart,
+              currentPeriodEnd: periodEnd,
+              updatedAt: new Date(),
+            },
+          });
+        fastify.log.info({ customerId, status: s.status }, 'subscription/sync: upserted to DB');
+      } catch (dbErr) {
+        // Log but don't fail the request — status is still accurate from Stripe
+        fastify.log.error({ dbErr, customerId }, 'subscription/sync: DB upsert failed');
+      }
 
-      fastify.log.info({ customerId, status: s.status }, 'subscription/sync: synced successfully');
       return reply.send({ status: s.status, currentPeriodEnd: periodEnd.toISOString() });
     },
   );

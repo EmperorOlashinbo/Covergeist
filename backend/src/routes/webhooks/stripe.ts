@@ -133,10 +133,9 @@ async function handleSubscriptionUpsert(sub: SubData): Promise<void> {
       currentPeriodEnd: periodEnd,
     })
     .onConflictDoUpdate({
-      target: subscriptions.stripeCustomerId,
+      target: subscriptions.stripeSubscriptionId,
       set: {
         status: sub.status,
-        stripeSubscriptionId: sub.id,
         currentPeriodStart: periodStart,
         currentPeriodEnd: periodEnd,
         updatedAt: new Date(),
