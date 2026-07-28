@@ -52,6 +52,9 @@ export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
           customer: customerId,
           mode: 'subscription',
           line_items: [{ price: priceId, quantity: 1 }],
+          // Pass user identity so checkout.session.completed webhook can write
+          // the subscription directly without a separate sync step.
+          metadata: { clerk_id: clerkId, user_id: userId },
           success_url:
             process.env.STRIPE_SUCCESS_URL ??
             'https://covergeist.dev/billing/success',

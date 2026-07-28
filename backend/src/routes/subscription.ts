@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import Stripe from 'stripe';
 import { db } from '../db/client';
@@ -13,6 +13,69 @@ interface StripeSubRaw {
   status: string;
   current_period_start: number;
   current_period_end: number;
+  customer: string;
+}
+
+/** Resolves the user's email: JWT first, then Clerk REST API as fallback. */
+async function resolveEmail(jwtEmail: string, clerkId: string): Promise<string> {
+  if (jwtEmail) return jwtEmail;
+  const key = process.env.CLERK_SECRET_KEY;
+  if (!key) return '';
+  try {
+    const resp = await fetch(`https://api.clerk.com/v1/users/${clerkId}`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!resp.ok) return '';
+    const data = (await resp.json()) as {
+      email_addresses?: Array<{ email_address: string }>;
+    };
+    return data.email_addresses?.[0]?.email_address ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** Finds an active Stripe subscription across ALL customers that match clerk_id or email. */
+async function findActiveStripeSubscription(
+  clerkId: string,
+  email: string,
+): Promise<StripeSubRaw | null> {
+  // Collect candidate customer IDs from both lookup paths in parallel
+  const [byMeta, byEmail] = await Promise.all([
+    stripe.customers.search({ query: `metadata['clerk_id']:'${clerkId}'`, limit: 10 }),
+    email ? stripe.customers.list({ email, limit: 10 }) : Promise.resolve({ data: [] }),
+  ]);
+
+  // Deduplicate customers
+  const seen = new Set<string>();
+  const candidates: Array<{ id: string }> = [];
+  for (const c of [...byMeta.data, ...byEmail.data]) {
+    if (!seen.has(c.id)) { seen.add(c.id); candidates.push(c); }
+  }
+
+  // Check each candidate for an active subscription
+  for (const { id: customerId } of candidates) {
+    const subs = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'active',
+      limit: 1,
+    });
+    if (subs.data.length > 0) {
+      const s = subs.data[0] as unknown as StripeSubRaw;
+      return { ...s, customer: customerId };
+    }
+    // Also check trialing
+    const trialing = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'trialing',
+      limit: 1,
+    });
+    if (trialing.data.length > 0) {
+      const s = trialing.data[0] as unknown as StripeSubRaw;
+      return { ...s, customer: customerId };
+    }
+  }
+  return null;
 }
 
 export async function subscriptionRoutes(fastify: FastifyInstance): Promise<void> {
@@ -25,6 +88,7 @@ export async function subscriptionRoutes(fastify: FastifyInstance): Promise<void
         .select({ status: subscriptions.status, currentPeriodEnd: subscriptions.currentPeriodEnd })
         .from(subscriptions)
         .where(eq(subscriptions.userId, request.user.userId))
+        .orderBy(desc(subscriptions.updatedAt))
         .limit(1);
 
       if (!sub) return { status: 'none', currentPeriodEnd: null };
@@ -32,78 +96,54 @@ export async function subscriptionRoutes(fastify: FastifyInstance): Promise<void
     },
   );
 
-  // Sync from Stripe (fallback when webhook was missed or customer has no clerk_id metadata)
+  // Sync from Stripe (fallback when webhook was missed)
   fastify.post(
     '/v1/subscription/sync',
     { preHandler: authPreHandler },
     async (request, reply) => {
-      const { clerkId, email, userId } = request.user;
+      const { clerkId, email: jwtEmail, userId } = request.user;
 
-      // ── Step 1: find the Stripe customer ──────────────────────────────────
-      let customerId: string | undefined;
+      fastify.log.info({ clerkId, jwtEmail, userId }, 'subscription/sync: starting');
 
-      // 1a. Check our own DB first
+      // ── Step 1: fast DB check ────────────────────────────────────────────
       const [existingSub] = await db
-        .select({ stripeCustomerId: subscriptions.stripeCustomerId })
+        .select({ stripeCustomerId: subscriptions.stripeCustomerId, status: subscriptions.status })
         .from(subscriptions)
         .where(eq(subscriptions.userId, userId))
+        .orderBy(desc(subscriptions.updatedAt))
         .limit(1);
 
-      if (existingSub) {
-        customerId = existingSub.stripeCustomerId;
+      if (existingSub && ['active', 'trialing'].includes(existingSub.status)) {
+        fastify.log.info({ status: existingSub.status }, 'subscription/sync: found active sub in DB');
+        return reply.send({ status: existingSub.status, currentPeriodEnd: null });
       }
 
-      // 1b. Search Stripe by clerk_id metadata
-      if (!customerId) {
-        const byMeta = await stripe.customers.search({
-          query: `metadata['clerk_id']:'${clerkId}'`,
-          limit: 1,
-        });
-        if (byMeta.data.length > 0) customerId = byMeta.data[0].id;
-      }
+      // ── Step 2: resolve email (JWT may omit it; fall back to Clerk API) ──
+      const email = await resolveEmail(jwtEmail, clerkId);
+      fastify.log.info({ clerkId, email, jwtEmail }, 'subscription/sync: resolved email');
 
-      // 1c. Fallback: search by email and pick the customer that has an active sub
-      if (!customerId && email) {
-        const byEmail = await stripe.customers.list({ email, limit: 10 });
-        for (const customer of byEmail.data) {
-          const subs = await stripe.subscriptions.list({
-            customer: customer.id,
-            status: 'active',
-            limit: 1,
-          });
-          if (subs.data.length > 0) {
-            customerId = customer.id;
-            // Write clerk_id into metadata so future lookups by metadata work
-            await stripe.customers.update(customer.id, {
-              metadata: { clerk_id: clerkId },
-            });
-            break;
-          }
-        }
-      }
+      // ── Step 3: find active Stripe subscription across all matching customers
+      const s = await findActiveStripeSubscription(clerkId, email);
 
-      if (!customerId) {
-        fastify.log.info({ clerkId, email }, 'subscription/sync: no Stripe customer found');
+      if (!s) {
+        fastify.log.info({ clerkId, email }, 'subscription/sync: no active Stripe subscription found');
         return reply.send({ status: 'none', currentPeriodEnd: null });
       }
 
-      // ── Step 2: get the active subscription for that customer ─────────────
-      const stripeSubs = await stripe.subscriptions.list({
-        customer: customerId,
-        status: 'active',
-        limit: 1,
-      });
+      fastify.log.info(
+        { subscriptionId: s.id, customerId: s.customer, status: s.status },
+        'subscription/sync: found active Stripe subscription',
+      );
 
-      if (stripeSubs.data.length === 0) {
-        fastify.log.info({ customerId }, 'subscription/sync: customer has no active subscription');
-        return reply.send({ status: 'none', currentPeriodEnd: null });
-      }
-
-      const s = stripeSubs.data[0] as unknown as StripeSubRaw;
       const periodStart = new Date(s.current_period_start * 1000).toISOString().split('T')[0]!;
       const periodEnd = new Date(s.current_period_end * 1000);
 
-      // Resolve userId in case we found the customer via email (not our DB)
+      // Ensure the customer has clerk_id in metadata for future lookups
+      await stripe.customers.update(s.customer, {
+        metadata: { clerk_id: clerkId },
+      }).catch(() => { /* non-fatal */ });
+
+      // ── Step 4: find our DB user ─────────────────────────────────────────
       let resolvedUserId = userId;
       if (!existingSub) {
         const [u] = await db
@@ -114,14 +154,13 @@ export async function subscriptionRoutes(fastify: FastifyInstance): Promise<void
         if (u) resolvedUserId = u.id;
       }
 
-      // ── Step 3: upsert so DB is correct for future requests ───────────────
-      // stripeSubscriptionId has the unique constraint (not stripeCustomerId)
+      // ── Step 5: upsert to DB ─────────────────────────────────────────────
       try {
         await db
           .insert(subscriptions)
           .values({
             userId: resolvedUserId,
-            stripeCustomerId: customerId,
+            stripeCustomerId: s.customer,
             stripeSubscriptionId: s.id,
             status: s.status,
             currentPeriodStart: periodStart,
@@ -130,19 +169,87 @@ export async function subscriptionRoutes(fastify: FastifyInstance): Promise<void
           .onConflictDoUpdate({
             target: subscriptions.stripeSubscriptionId,
             set: {
+              userId: resolvedUserId,
               status: s.status,
               currentPeriodStart: periodStart,
               currentPeriodEnd: periodEnd,
               updatedAt: new Date(),
             },
           });
-        fastify.log.info({ customerId, status: s.status }, 'subscription/sync: upserted to DB');
+        fastify.log.info(
+          { subscriptionId: s.id, resolvedUserId, status: s.status },
+          'subscription/sync: DB upsert succeeded',
+        );
       } catch (dbErr) {
-        // Log but don't fail the request — status is still accurate from Stripe
-        fastify.log.error({ dbErr, customerId }, 'subscription/sync: DB upsert failed');
+        fastify.log.error({ dbErr, subscriptionId: s.id }, 'subscription/sync: DB upsert FAILED');
+        // Surface the error in the response body so it's visible in extension logs
+        return reply.send({
+          status: s.status,
+          currentPeriodEnd: periodEnd.toISOString(),
+          _dbError: dbErr instanceof Error ? dbErr.message : String(dbErr),
+        });
       }
 
       return reply.send({ status: s.status, currentPeriodEnd: periodEnd.toISOString() });
+    },
+  );
+
+  // Diagnostic endpoint — shows exactly what sync would find (safe, read-only)
+  fastify.get(
+    '/v1/debug/subscription',
+    { preHandler: authPreHandler },
+    async (request) => {
+      const { clerkId, email: jwtEmail, userId } = request.user;
+
+      const [dbSub] = await db
+        .select({
+          status: subscriptions.status,
+          stripeCustomerId: subscriptions.stripeCustomerId,
+          stripeSubscriptionId: subscriptions.stripeSubscriptionId,
+          currentPeriodEnd: subscriptions.currentPeriodEnd,
+        })
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, userId))
+        .orderBy(desc(subscriptions.updatedAt))
+        .limit(1);
+
+      const email = await resolveEmail(jwtEmail, clerkId);
+
+      let byMeta: Array<{ id: string; email: string | null }> = [];
+      let byEmailResult: Array<{ id: string; email: string | null }> = [];
+      let activeStripeSubId: string | null = null;
+      let activeStripeStatus: string | null = null;
+      let stripeError: string | null = null;
+
+      try {
+        const [metaRes, emailRes] = await Promise.all([
+          stripe.customers.search({ query: `metadata['clerk_id']:'${clerkId}'`, limit: 5 }),
+          email ? stripe.customers.list({ email, limit: 5 }) : Promise.resolve({ data: [] }),
+        ]);
+        byMeta = metaRes.data.map(c => ({ id: c.id, email: c.email ?? null }));
+        byEmailResult = emailRes.data.map(c => ({ id: c.id, email: c.email ?? null }));
+
+        const activeSub = await findActiveStripeSubscription(clerkId, email);
+        if (activeSub) {
+          activeStripeSubId = activeSub.id;
+          activeStripeStatus = activeSub.status;
+        }
+      } catch (e) {
+        stripeError = e instanceof Error ? e.message : String(e);
+      }
+
+      return {
+        clerkId,
+        jwtEmail,
+        resolvedEmail: email,
+        userId,
+        dbSubscription: dbSub ?? null,
+        stripeCustomersByMeta: byMeta,
+        stripeCustomersByEmail: byEmailResult,
+        activeStripeSubscriptionId: activeStripeSubId,
+        activeStripeStatus,
+        stripeError,
+      };
     },
   );
 }

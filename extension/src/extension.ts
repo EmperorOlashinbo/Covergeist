@@ -97,6 +97,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const signInCommand = vscode.commands.registerCommand('covergeist.signIn', () => authService.signIn());
   const signOutCommand = vscode.commands.registerCommand('covergeist.signOut', () => authService.signOut());
 
+  const debugSubCommand = vscode.commands.registerCommand('covergeist.debugSubscription', async () => {
+    const channel = vscode.window.createOutputChannel('Covergeist Diagnostics');
+    channel.show();
+    channel.appendLine('Checking subscription status…');
+    try {
+      const data = await backendClient.get<Record<string, unknown>>('/v1/debug/subscription');
+      channel.appendLine(JSON.stringify(data, null, 2));
+      void vscode.window.showInformationMessage(
+        `Subscription status: DB=${JSON.stringify((data.dbSubscription as { status?: string } | null)?.status ?? 'none')} | Stripe=${String(data.activeStripeStatus ?? 'none')}`,
+      );
+    } catch (err) {
+      channel.appendLine(`Error: ${(err as Error).message}`);
+    }
+  });
+
   const generateTestCodeActionProvider = vscode.languages.registerCodeActionsProvider(
     [
       { language: 'typescript' },
@@ -122,6 +137,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     generateTestCodeActionProvider,
     signInCommand,
     signOutCommand,
+    debugSubCommand,
   );
 
   // --- Auto sign-in prompt & auto scan ---

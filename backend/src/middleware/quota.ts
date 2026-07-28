@@ -1,12 +1,45 @@
 import { and, count, desc, eq } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import Stripe from 'stripe';
 import { db } from '../db/client';
-import { generationLog, subscriptions } from '../db/schema';
+import { generationLog, subscriptions, users } from '../db/schema';
 
 declare module 'fastify' {
   interface FastifyRequest {
     billingPeriodStart: string | undefined;
   }
+}
+
+interface StripeSubRaw {
+  id: string;
+  status: string;
+  customer: string;
+  current_period_start: number;
+  current_period_end: number;
+}
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+/** Searches Stripe for any active/trialing subscription for the given clerkId. */
+async function findStripeSubForUser(clerkId: string): Promise<StripeSubRaw | null> {
+  const customers = await stripe.customers.search({
+    query: `metadata['clerk_id']:'${clerkId}'`,
+    limit: 10,
+  });
+
+  for (const customer of customers.data) {
+    for (const status of ['active', 'trialing'] as const) {
+      const subs = await stripe.subscriptions.list({
+        customer: customer.id,
+        status,
+        limit: 1,
+      });
+      if (subs.data.length > 0) {
+        return { ...(subs.data[0] as unknown as StripeSubRaw), customer: customer.id };
+      }
+    }
+  }
+  return null;
 }
 
 export async function quotaPreHandler(
@@ -25,8 +58,55 @@ export async function quotaPreHandler(
     .orderBy(desc(subscriptions.updatedAt))
     .limit(1);
 
+  // No active DB subscription — fall back to a direct Stripe check before rejecting.
+  // This handles the case where sync found a subscription but the DB write failed.
   if (!sub || !['active', 'trialing'].includes(sub.status)) {
-    await reply.status(403).send({ error: 'no_subscription' });
+    let stripeSub: StripeSubRaw | null = null;
+    try {
+      stripeSub = await findStripeSubForUser(request.user.clerkId);
+    } catch { /* ignore Stripe errors — 403 below is the safe default */ }
+
+    if (!stripeSub) {
+      await reply.status(403).send({ error: 'no_subscription' });
+      return;
+    }
+
+    // Write to DB so future requests don't need the Stripe fallback
+    const periodStart = new Date(stripeSub.current_period_start * 1000).toISOString().split('T')[0]!;
+    const periodEnd = new Date(stripeSub.current_period_end * 1000);
+
+    const [u] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.clerkId, request.user.clerkId))
+      .limit(1);
+
+    if (u) {
+      await db
+        .insert(subscriptions)
+        .values({
+          userId: u.id,
+          stripeCustomerId: stripeSub.customer,
+          stripeSubscriptionId: stripeSub.id,
+          status: stripeSub.status,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+        })
+        .onConflictDoUpdate({
+          target: subscriptions.stripeSubscriptionId,
+          set: {
+            userId: u.id,
+            status: stripeSub.status,
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
+            updatedAt: new Date(),
+          },
+        })
+        .catch(() => { /* non-fatal — generation will still proceed */ });
+    }
+
+    // Allow the request through using the Stripe subscription's billing period
+    request.billingPeriodStart = periodStart;
     return;
   }
 

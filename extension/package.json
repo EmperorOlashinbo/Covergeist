@@ -55,6 +55,11 @@
         "command": "covergeist.generateTest",
         "title": "Generate Test",
         "category": "Covergeist"
+      },
+      {
+        "command": "covergeist.debugSubscription",
+        "title": "Check Subscription Status",
+        "category": "Covergeist"
       }
     ],
     "configuration": {
