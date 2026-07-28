@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { db } from '../db/client';
 import { subscriptions, users } from '../db/schema';
 import { authPreHandler } from '../middleware/auth';
+import { upsertSubscription } from '../lib/subscriptionUpsert';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -156,33 +157,20 @@ export async function subscriptionRoutes(fastify: FastifyInstance): Promise<void
 
       // ── Step 5: upsert to DB ─────────────────────────────────────────────
       try {
-        await db
-          .insert(subscriptions)
-          .values({
-            userId: resolvedUserId,
-            stripeCustomerId: s.customer,
-            stripeSubscriptionId: s.id,
-            status: s.status,
-            currentPeriodStart: periodStart,
-            currentPeriodEnd: periodEnd,
-          })
-          .onConflictDoUpdate({
-            target: subscriptions.stripeSubscriptionId,
-            set: {
-              userId: resolvedUserId,
-              status: s.status,
-              currentPeriodStart: periodStart,
-              currentPeriodEnd: periodEnd,
-              updatedAt: new Date(),
-            },
-          });
+        await upsertSubscription({
+          userId: resolvedUserId,
+          stripeCustomerId: s.customer,
+          stripeSubscriptionId: s.id,
+          status: s.status,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+        });
         fastify.log.info(
           { subscriptionId: s.id, resolvedUserId, status: s.status },
           'subscription/sync: DB upsert succeeded',
         );
       } catch (dbErr) {
         fastify.log.error({ dbErr, subscriptionId: s.id }, 'subscription/sync: DB upsert FAILED');
-        // Surface the error in the response body so it's visible in extension logs
         return reply.send({
           status: s.status,
           currentPeriodEnd: periodEnd.toISOString(),

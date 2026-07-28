@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import Stripe from 'stripe';
 import { db } from '../db/client';
 import { generationLog, subscriptions, users } from '../db/schema';
+import { upsertSubscription } from '../lib/subscriptionUpsert';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -82,27 +83,14 @@ export async function quotaPreHandler(
       .limit(1);
 
     if (u) {
-      await db
-        .insert(subscriptions)
-        .values({
-          userId: u.id,
-          stripeCustomerId: stripeSub.customer,
-          stripeSubscriptionId: stripeSub.id,
-          status: stripeSub.status,
-          currentPeriodStart: periodStart,
-          currentPeriodEnd: periodEnd,
-        })
-        .onConflictDoUpdate({
-          target: subscriptions.stripeSubscriptionId,
-          set: {
-            userId: u.id,
-            status: stripeSub.status,
-            currentPeriodStart: periodStart,
-            currentPeriodEnd: periodEnd,
-            updatedAt: new Date(),
-          },
-        })
-        .catch(() => { /* non-fatal — generation will still proceed */ });
+      await upsertSubscription({
+        userId: u.id,
+        stripeCustomerId: stripeSub.customer,
+        stripeSubscriptionId: stripeSub.id,
+        status: stripeSub.status,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+      }).catch(() => { /* non-fatal — generation proceeds even if write fails */ });
     }
 
     // Allow the request through using the Stripe subscription's billing period

@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import Stripe from 'stripe';
 import { db } from '../../db/client';
 import { subscriptions, users } from '../../db/schema';
+import { upsertSubscription } from '../../lib/subscriptionUpsert';
 
 interface CheckoutSessionData {
   id: string;
@@ -135,26 +136,14 @@ async function handleCheckoutComplete(
   const periodStart = new Date(subRaw.current_period_start * 1000).toISOString().split('T')[0]!;
   const periodEnd = new Date(subRaw.current_period_end * 1000);
 
-  await db
-    .insert(subscriptions)
-    .values({
-      userId: resolvedUserId,
-      stripeCustomerId: customerId,
-      stripeSubscriptionId: subscriptionId,
-      status: sub.status,
-      currentPeriodStart: periodStart,
-      currentPeriodEnd: periodEnd,
-    })
-    .onConflictDoUpdate({
-      target: subscriptions.stripeSubscriptionId,
-      set: {
-        userId: resolvedUserId,
-        status: sub.status,
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-        updatedAt: new Date(),
-      },
-    });
+  await upsertSubscription({
+    userId: resolvedUserId,
+    stripeCustomerId: customerId,
+    stripeSubscriptionId: subscriptionId,
+    status: sub.status,
+    currentPeriodStart: periodStart,
+    currentPeriodEnd: periodEnd,
+  });
 
   fastify.log.info(
     { subscriptionId, resolvedUserId, status: sub.status },
@@ -213,26 +202,14 @@ async function handleSubscriptionUpsert(
     return;
   }
 
-  await db
-    .insert(subscriptions)
-    .values({
-      userId: user.id,
-      stripeCustomerId: customerId,
-      stripeSubscriptionId: sub.id,
-      status: sub.status,
-      currentPeriodStart: periodStart,
-      currentPeriodEnd: periodEnd,
-    })
-    .onConflictDoUpdate({
-      target: subscriptions.stripeSubscriptionId,
-      set: {
-        userId: user.id,
-        status: sub.status,
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-        updatedAt: new Date(),
-      },
-    });
+  await upsertSubscription({
+    userId: user.id,
+    stripeCustomerId: customerId,
+    stripeSubscriptionId: sub.id,
+    status: sub.status,
+    currentPeriodStart: periodStart,
+    currentPeriodEnd: periodEnd,
+  });
 
   fastify.log.info(
     { subscriptionId: sub.id, userId: user.id, status: sub.status },
