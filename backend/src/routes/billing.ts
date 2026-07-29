@@ -28,14 +28,14 @@ async function findExistingActiveSub(clerkId: string): Promise<ActiveSubResult |
       if (subs.data.length > 0) {
         const s = subs.data[0] as unknown as {
           id: string; status: string;
-          current_period_start: number; current_period_end: number;
+          current_period_start?: number; current_period_end?: number;
         };
         return {
           customerId: customer.id,
           subscriptionId: s.id,
           status: s.status,
-          periodStart: s.current_period_start,
-          periodEnd: s.current_period_end,
+          periodStart: s.current_period_start ?? 0,
+          periodEnd: s.current_period_end ?? 0,
         };
       }
     }
@@ -76,18 +76,22 @@ export async function billingRoutes(fastify: FastifyInstance): Promise<void> {
         // DB doesn't have an active sub — check Stripe directly
         const existingActiveSub = await findExistingActiveSub(clerkId);
         if (existingActiveSub) {
-          // Write to DB so future requests skip Stripe entirely
-          const periodStart = new Date(existingActiveSub.periodStart * 1000).toISOString().split('T')[0]!;
-          const periodEnd = new Date(existingActiveSub.periodEnd * 1000);
-          await upsertSubscription({
-            userId,
-            stripeCustomerId: existingActiveSub.customerId,
-            stripeSubscriptionId: existingActiveSub.subscriptionId,
-            status: existingActiveSub.status,
-            currentPeriodStart: periodStart,
-            currentPeriodEnd: periodEnd,
-          }).catch(e => fastify.log.error({ e }, 'billing/checkout: DB write failed on already-subscribed path'));
-          fastify.log.info({ userId, subscriptionId: existingActiveSub.subscriptionId }, 'billing/checkout: existing active sub found, returning alreadySubscribed');
+          // Best-effort DB write — isolated so a bad timestamp never blocks the response
+          try {
+            const periodStart = new Date(existingActiveSub.periodStart * 1000).toISOString().split('T')[0]!;
+            const periodEnd = new Date(existingActiveSub.periodEnd * 1000);
+            await upsertSubscription({
+              userId,
+              stripeCustomerId: existingActiveSub.customerId,
+              stripeSubscriptionId: existingActiveSub.subscriptionId,
+              status: existingActiveSub.status,
+              currentPeriodStart: periodStart,
+              currentPeriodEnd: periodEnd,
+            });
+          } catch (writeErr) {
+            fastify.log.error({ writeErr }, 'billing/checkout: DB write failed on already-subscribed path');
+          }
+          fastify.log.info({ userId, subscriptionId: existingActiveSub.subscriptionId }, 'billing/checkout: existing active sub found');
           return reply.status(200).send({ url: null, alreadySubscribed: true });
         }
 
