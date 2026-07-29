@@ -15,22 +15,23 @@ export class QuotaService implements vscode.Disposable {
     private readonly statusBarItem: vscode.StatusBarItem,
   ) {}
 
-  private async openCheckout(): Promise<void> {
+  /** Opens the Stripe checkout page. Returns true if user is already subscribed. */
+  private async openCheckout(): Promise<boolean> {
     try {
-      const { url } = await this.client.post<{ url: string }>(
+      const result = await this.client.post<{ url: string | null; alreadySubscribed?: boolean }>(
         '/v1/billing/checkout',
         {},
       );
-      await vscode.env.openExternal(vscode.Uri.parse(url));
+      if (result.alreadySubscribed || !result.url) return true;
+      await vscode.env.openExternal(vscode.Uri.parse(result.url));
+      return false;
     } catch (err) {
-      if (err instanceof AuthError) {
-        // BackendClient already showed "Session expired — please sign in."
-        return;
-      }
+      if (err instanceof AuthError) return false;
       const detail = err instanceof Error ? err.message : String(err);
       void vscode.window.showErrorMessage(
         `Covergeist: Could not start checkout — ${detail}`,
       );
+      return false;
     }
   }
 
@@ -64,6 +65,25 @@ export class QuotaService implements vscode.Disposable {
     reason: 'no-subscription' | 'quota-exhausted' = 'quota-exhausted',
     onSubscribed?: () => void,
   ): Promise<void> {
+    // Before showing the dialog, try syncing one more time.
+    // Handles the case where sync failed transiently in checkAndPrepare,
+    // or where the user already paid but the DB row wasn't written yet.
+    try {
+      const sub = await this.client.post<{ status: string }>('/v1/subscription/sync', {});
+      if (sub.status === 'active' || sub.status === 'trialing') {
+        await this.refresh();
+        if (onSubscribed) {
+          void vscode.window.showInformationMessage(
+            'Covergeist: Subscription confirmed — generating your test now!',
+          );
+          onSubscribed();
+        } else {
+          void vscode.window.showInformationMessage('Covergeist: You already have an active subscription!');
+        }
+        return;
+      }
+    } catch { /* fall through to the subscribe dialog */ }
+
     const [message, button] =
       reason === 'no-subscription'
         ? ['Subscribe to Covergeist to generate tests.', 'Subscribe']
@@ -72,7 +92,12 @@ export class QuotaService implements vscode.Disposable {
     const choice = await vscode.window.showInformationMessage(message, button);
     if (choice !== button) return;
 
-    await this.openCheckout();
+    const alreadySubscribed = await this.openCheckout();
+    if (alreadySubscribed) {
+      void vscode.window.showInformationMessage(
+        'Covergeist: You already have an active subscription! Activating now…',
+      );
+    }
     this.startSubscriptionPolling(onSubscribed);
   }
 
