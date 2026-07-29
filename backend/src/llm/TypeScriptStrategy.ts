@@ -7,20 +7,39 @@ interface Prompt {
 
 export class TypeScriptStrategy {
   static buildPrompt(snippet: CodeSnippet): Prompt {
-    const system =
-      snippet.runner === 'vitest'
-        ? 'You are a TypeScript test generator. Output ONLY valid TypeScript test code — no markdown code fences, no explanations, no prose. The output must be executable TypeScript that can be saved directly to a .test.ts file and run with Vitest. Use Vitest\'s API: describe(), it(), expect(), vi.fn(), beforeEach(), afterEach(). Import the function under test using the correct relative path.'
-        : 'You are a TypeScript test generator. Output ONLY valid TypeScript test code — no markdown code fences, no explanations, no prose. The output must be executable TypeScript that can be saved directly to a .test.ts file and run with Jest. Use Jest\'s API: describe(), it(), expect(), jest.fn(), beforeEach(), afterEach(). Import the function under test using the correct relative path.';
+    const isVitest = snippet.runner === 'vitest';
+    const runner = isVitest ? 'Vitest' : 'Jest';
+    const mockFn = isVitest ? 'vi.fn()' : 'jest.fn()';
+    const mockModule = isVitest ? 'vi.mock(...)' : 'jest.mock(...)';
+
+    // Derive the import path the test file should use (same directory, no extension)
+    const srcFile = snippet.relativeFilePath;
+    const baseName = srcFile.replace(/\.[^./]+$/, ''); // strip extension
+    const fileName = baseName.split('/').pop() ?? baseName; // last segment
+    const importPath = `./${fileName}`;
+
+    const system = [
+      `You are a TypeScript test generator using ${runner}.`,
+      'Output ONLY a single, complete, syntactically valid TypeScript test file.',
+      'No markdown fences, no explanations, no prose — raw TypeScript only.',
+      'Rules:',
+      `  1. Import the module under test from "${importPath}" — use this exact path everywhere.`,
+      '  2. Do NOT use any other import paths for the module under test.',
+      `  3. Use only ${runner} APIs: describe(), it(), expect(), ${mockFn}, ${mockModule}, beforeEach(), afterEach().`,
+      '  4. One import block at the top, one or more describe() blocks, no duplicate sections.',
+      '  5. The file must be complete and syntactically valid — no cut-off code.',
+    ].join('\n');
 
     const lines = [
-      `Generate a comprehensive test for the following TypeScript function from \`${snippet.relativeFilePath}\`.`,
+      `Source file: ${srcFile}`,
+      `Test file will be saved as: ${baseName}.test.ts`,
       '',
       'Function to test:',
       snippet.snippetCode,
     ];
 
     if (snippet.contextCode.trim()) {
-      lines.push('', 'Surrounding context:', snippet.contextCode);
+      lines.push('', 'Other exports/imports in the same source file (for context only — do not import from these paths):', snippet.contextCode);
     }
 
     return { system, user: lines.join('\n') };
