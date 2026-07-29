@@ -34,17 +34,20 @@ export async function generateRoutes(fastify: FastifyInstance): Promise<void> {
         if (err instanceof LLMTimeoutError) {
           return reply.status(504).send({ error: 'llm_timeout' });
         }
-        throw err;
+        // Surface Anthropic errors as 502 so the client shows a useful message
+        const detail = err instanceof Error ? err.message : String(err);
+        fastify.log.error({ err }, 'Anthropic API error');
+        return reply.status(502).send({ error: 'llm_error', detail });
       }
 
       const test = TypeScriptStrategy.sanitiseResponse(rawResponse);
 
-      // Log the generation — no code content stored (NFR1)
+      // Log the generation — fire-and-forget so a DB hiccup never discards a
+      // successfully-generated test from the user's perspective.
       if (request.billingPeriodStart) {
-        await db.insert(generationLog).values({
-          userId: request.user.userId,
-          billingPeriodStart: request.billingPeriodStart,
-        });
+        db.insert(generationLog)
+          .values({ userId: request.user.userId, billingPeriodStart: request.billingPeriodStart })
+          .catch(e => fastify.log.error({ e }, 'generationLog insert failed'));
       }
 
       // Derive suggested test path by inserting .test before the extension
