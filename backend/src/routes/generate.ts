@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { GenerateRequestSchema } from '@covergeist/shared';
+import { FileGenerateRequestSchema, GenerateRequestSchema } from '@covergeist/shared';
 import { db } from '../db/client';
 import { generationLog } from '../db/schema';
 import { AnthropicClient, LLMTimeoutError } from '../llm/AnthropicClient';
@@ -52,6 +52,53 @@ export async function generateRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Derive suggested test path by inserting .test before the extension
       const { relativeFilePath } = snippet;
+      const dotIdx = relativeFilePath.lastIndexOf('.');
+      const suggestedTestFilePath =
+        dotIdx >= 0
+          ? `${relativeFilePath.slice(0, dotIdx)}.test${relativeFilePath.slice(dotIdx)}`
+          : `${relativeFilePath}.test`;
+
+      return reply.status(200).send({ test, suggestedTestFilePath });
+    },
+  );
+
+  // File-level generation: all uncovered functions in one coherent test file
+  fastify.post(
+    '/v1/generate-file',
+    { preHandler: [authPreHandler, quotaPreHandler] },
+    async (request, reply) => {
+      const parseResult = FileGenerateRequestSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        return reply.status(400).send({
+          error: 'validation_error',
+          details: parseResult.error.errors,
+        });
+      }
+
+      const { fileSnippet } = parseResult.data;
+      const prompt = TypeScriptStrategy.buildFilePrompt(fileSnippet);
+
+      let rawResponse: string;
+      try {
+        rawResponse = await anthropic.generate(prompt, 4096);
+      } catch (err) {
+        if (err instanceof LLMTimeoutError) {
+          return reply.status(504).send({ error: 'llm_timeout' });
+        }
+        const detail = err instanceof Error ? err.message : String(err);
+        fastify.log.error({ err }, 'Anthropic API error (generate-file)');
+        return reply.status(502).send({ error: 'llm_error', detail });
+      }
+
+      const test = TypeScriptStrategy.sanitiseResponse(rawResponse);
+
+      if (request.billingPeriodStart) {
+        db.insert(generationLog)
+          .values({ userId: request.user.userId, billingPeriodStart: request.billingPeriodStart })
+          .catch(e => fastify.log.error({ e }, 'generationLog insert failed'));
+      }
+
+      const { relativeFilePath } = fileSnippet;
       const dotIdx = relativeFilePath.lastIndexOf('.');
       const suggestedTestFilePath =
         dotIdx >= 0

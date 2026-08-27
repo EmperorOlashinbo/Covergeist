@@ -21,7 +21,7 @@ export class AnthropicClient {
 
   constructor(private readonly apiKey: string) {}
 
-  async generate(prompt: AnthropicPrompt): Promise<string> {
+  async generate(prompt: AnthropicPrompt, maxTokens = AnthropicClient.MAX_TOKENS): Promise<string> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), AnthropicClient.TIMEOUT_MS);
 
@@ -35,7 +35,7 @@ export class AnthropicClient {
         },
         body: JSON.stringify({
           model: AnthropicClient.MODEL,
-          max_tokens: AnthropicClient.MAX_TOKENS,
+          max_tokens: maxTokens,
           temperature: 0,
           system: prompt.system,
           messages: [{ role: 'user', content: prompt.user }],

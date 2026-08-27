@@ -5,8 +5,10 @@ import type {
   CodeSnippet,
   CoverageMap,
   FileCoverage,
+  FileSnippet,
   LanguageAdapter,
   TestRunner,
+  UncoveredFunction,
 } from '../LanguageAdapter';
 
 interface PackageJson {
@@ -176,6 +178,94 @@ export class TypeScriptAdapter implements LanguageAdapter {
     const relativeFilePath = path.relative(projectRoot, document.uri.fsPath).replace(/\\/g, '/');
 
     return { language: 'typescript', runner, functionName, snippetCode, contextCode, relativeFilePath };
+  }
+
+  async extractFileSnippet(
+    document: vscode.TextDocument,
+    fileCoverage: FileCoverage,
+  ): Promise<FileSnippet | null> {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+    const projectRoot = workspaceFolder?.uri.fsPath ?? path.dirname(document.uri.fsPath);
+    const runner = (await this.detectRunner(projectRoot)) ?? 'vitest';
+    const relativeFilePath = path.relative(projectRoot, document.uri.fsPath).replace(/\\/g, '/');
+
+    // Collect uncovered function names
+    const uncoveredNames = new Set<string>();
+    for (const [name, covered] of fileCoverage.functions) {
+      if (!covered) uncoveredNames.add(name);
+    }
+    if (uncoveredNames.size === 0) return null;
+
+    // Get document symbols to locate each function's source range
+    const functionKinds = new Set([
+      vscode.SymbolKind.Function,
+      vscode.SymbolKind.Method,
+      vscode.SymbolKind.Constructor,
+    ]);
+
+    let allSymbols: vscode.DocumentSymbol[] = [];
+    try {
+      const top = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+        'vscode.executeDocumentSymbolProvider',
+        document.uri,
+      );
+      const flatten = (syms: vscode.DocumentSymbol[]): void => {
+        for (const sym of syms) {
+          if (functionKinds.has(sym.kind)) allSymbols.push(sym);
+          if (sym.children.length) flatten(sym.children);
+        }
+      };
+      flatten(top ?? []);
+    } catch { /* fall through to line-based fallback */ }
+
+    const uncoveredFunctions: UncoveredFunction[] = [];
+
+    for (const name of uncoveredNames) {
+      const sym = allSymbols.find(s => s.name === name);
+      if (sym) {
+        let code = document.getText(sym.range);
+        if (code.length > 3000) code = code.slice(0, 3000);
+        uncoveredFunctions.push({ name, code });
+      }
+    }
+
+    // Fallback: if symbol provider found nothing, try line-based extraction
+    if (uncoveredFunctions.length === 0) {
+      const content = document.getText();
+      const fns = this.extractFunctionRanges(content);
+      for (const fn of fns) {
+        if (uncoveredNames.has(fn.name)) {
+          const startLine = fn.startLine - 1;
+          const endLine = fn.endLine - 1;
+          const range = new vscode.Range(startLine, 0, endLine, document.lineAt(endLine).text.length);
+          let code = document.getText(range);
+          if (code.length > 3000) code = code.slice(0, 3000);
+          uncoveredFunctions.push({ name: fn.name, code });
+        }
+      }
+    }
+
+    if (uncoveredFunctions.length === 0) return null;
+
+    // Extract context: imports and type/interface declarations from the top of the file
+    const contextLines: string[] = [];
+    for (let i = 0; i < Math.min(80, document.lineCount); i++) {
+      const line = document.lineAt(i).text;
+      const trimmed = line.trim();
+      if (
+        trimmed.startsWith('import ') ||
+        trimmed.startsWith('export type') ||
+        trimmed.startsWith('type ') ||
+        trimmed.startsWith('interface ') ||
+        trimmed.startsWith('export interface')
+      ) {
+        contextLines.push(line);
+      }
+    }
+    let contextCode = contextLines.join('\n');
+    if (contextCode.length > 3000) contextCode = contextCode.slice(0, 3000);
+
+    return { language: 'typescript', runner, relativeFilePath, uncoveredFunctions, contextCode };
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────

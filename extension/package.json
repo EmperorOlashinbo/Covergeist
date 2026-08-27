@@ -57,11 +57,33 @@
         "category": "Covergeist"
       },
       {
+        "command": "covergeist.generateFileTests",
+        "title": "Generate Tests for File",
+        "category": "Covergeist",
+        "icon": "$(beaker)"
+      },
+      {
         "command": "covergeist.debugSubscription",
         "title": "Check Subscription Status",
         "category": "Covergeist"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "covergeist.generateFileTests",
+          "when": "editorLangId =~ /^(typescript|typescriptreact|javascript|javascriptreact)$/",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "covergeist.generateFileTests",
+          "when": "editorLangId =~ /^(typescript|typescriptreact|javascript|javascriptreact)$/",
+          "group": "covergeist"
+        }
+      ]
+    },
     "configuration": {
       "title": "Covergeist",
       "properties": {

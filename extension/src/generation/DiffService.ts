@@ -35,6 +35,7 @@ export class DiffService implements vscode.Disposable {
     workspaceRoot: string,
     test: string,
     suggestedTestFilePath: string,
+    replace = false,
   ): Promise<void> {
     const absolutePath = path.join(workspaceRoot, suggestedTestFilePath);
 
@@ -45,7 +46,9 @@ export class DiffService implements vscode.Disposable {
       // File does not exist yet — left side will be blank
     }
 
-    const proposed = existing ? `${existing}\n\n${test}` : test;
+    // replace=true (file-level generation): always write a fresh complete file
+    // replace=false (single-function): append to any existing content
+    const proposed = replace || !existing ? test : `${existing}\n\n${test}`;
 
     const stamp = Date.now().toString();
     const beforeKey = `/before/${stamp}`;

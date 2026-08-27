@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { GenerateResponse, SubscriptionResponse } from '@covergeist/shared';
 import type { AdapterRegistry } from '../adapters/AdapterRegistry';
-import type { CodeSnippet } from '../adapters/LanguageAdapter';
+import type { CodeSnippet, FileSnippet } from '../adapters/LanguageAdapter';
 import { QuotaError, SubscriptionError, NetworkError } from '../api/BackendClient';
 import type { BackendClient } from '../api/BackendClient';
 import type { AuthService } from '../auth/AuthService';
@@ -16,15 +16,10 @@ export class GenerationService {
   ) {}
 
   /**
-   * Auth + subscription checks and snippet extraction.
-   * No progress spinner — runs before the AI call.
-   * Returns the snippet if ready to generate, null if blocked (prompt already shown).
+   * Auth + subscription checks only. Returns true if cleared to generate.
+   * Shows the appropriate prompt if not cleared.
    */
-  async checkAndPrepare(
-    document: vscode.TextDocument,
-    range: vscode.Range,
-    onSubscribed: () => void,
-  ): Promise<CodeSnippet | null> {
+  async checkAuth(onSubscribed?: () => void): Promise<boolean> {
     // 1. Auth gate
     const token = await this.authService.getAccessToken();
     if (!token) {
@@ -33,12 +28,10 @@ export class GenerationService {
         'Sign In',
       );
       if (choice === 'Sign In') void this.authService.signIn();
-      return null;
+      return false;
     }
 
-    // 2. Subscription gate
-    // First check the DB (fast). If not active, sync with Stripe in case the
-    // webhook was missed — this lets users who already paid skip the prompt.
+    // 2. Subscription gate — check DB first, then sync with Stripe if not found
     let isActive = false;
     try {
       const sub = await this.client.get<SubscriptionResponse>('/v1/subscription');
@@ -58,10 +51,24 @@ export class GenerationService {
 
     if (!isActive) {
       await this.quotaService.showUpgradePrompt('no-subscription', onSubscribed);
-      return null;
+      return false;
     }
 
-    // 3. Extract snippet
+    return true;
+  }
+
+  /**
+   * Auth + subscription checks and snippet extraction for a single function range.
+   * No progress spinner — runs before the AI call.
+   * Returns the snippet if ready to generate, null if blocked (prompt already shown).
+   */
+  async checkAndPrepare(
+    document: vscode.TextDocument,
+    range: vscode.Range,
+    onSubscribed: () => void,
+  ): Promise<CodeSnippet | null> {
+    if (!(await this.checkAuth(onSubscribed))) return null;
+
     const projectRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
     if (!projectRoot) return null;
 
@@ -72,19 +79,28 @@ export class GenerationService {
   }
 
   /**
-   * The actual AI generation call — run this inside withProgress.
+   * Single-function AI generation — run inside withProgress.
    */
   async generate(snippet: CodeSnippet): Promise<GenerateResponse | null> {
+    return this.callGenerate('/v1/generate', { snippet });
+  }
+
+  /**
+   * File-level AI generation — all uncovered functions in one call — run inside withProgress.
+   */
+  async generateForFile(fileSnippet: FileSnippet): Promise<GenerateResponse | null> {
+    return this.callGenerate('/v1/generate-file', { fileSnippet });
+  }
+
+  private async callGenerate(path: string, body: unknown): Promise<GenerateResponse | null> {
     try {
-      return await this.client.post<GenerateResponse>('/v1/generate', { snippet });
+      return await this.client.post<GenerateResponse>(path, body);
     } catch (err) {
       if (err instanceof QuotaError) {
         await this.quotaService.showUpgradePrompt('quota-exhausted');
         return null;
       }
       if (err instanceof SubscriptionError) {
-        // Quota middleware blocked the request — subscription exists but wasn't
-        // reflected in the DB yet. Prompt sync + retry.
         await this.quotaService.showUpgradePrompt('no-subscription');
         return null;
       }

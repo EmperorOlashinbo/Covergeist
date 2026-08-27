@@ -97,6 +97,77 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const signInCommand = vscode.commands.registerCommand('covergeist.signIn', () => authService.signIn());
   const signOutCommand = vscode.commands.registerCommand('covergeist.signOut', () => authService.signOut());
 
+  const generateFileTestsCommand = vscode.commands.registerCommand(
+    'covergeist.generateFileTests',
+    async () => {
+      const document = vscode.window.activeTextEditor?.document;
+      if (!document) return;
+
+      const fileCoverage = coverageService.getCoverageForFile(document.uri.fsPath);
+      if (!fileCoverage) {
+        void vscode.window.showInformationMessage(
+          'Covergeist: Run a coverage scan first — click the Covergeist icon in the sidebar.',
+        );
+        return;
+      }
+
+      const hasUncovered = Array.from(fileCoverage.functions.values()).some(v => !v);
+      if (!hasUncovered) {
+        void vscode.window.showInformationMessage(
+          'Covergeist: All functions in this file appear to have tests.',
+        );
+        return;
+      }
+
+      const retry = (): void => {
+        void vscode.commands.executeCommand('covergeist.generateFileTests');
+      };
+
+      if (!(await generationService.checkAuth(retry))) return;
+
+      // Extract all uncovered functions from the file
+      const projectRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
+      if (!projectRoot) return;
+      const adapter = await registry.resolve(projectRoot);
+      if (!adapter) return;
+
+      const fileSnippet = await adapter.extractFileSnippet(document, fileCoverage);
+      if (!fileSnippet || fileSnippet.uncoveredFunctions.length === 0) {
+        void vscode.window.showInformationMessage(
+          'Covergeist: Could not extract uncovered functions from this file.',
+        );
+        return;
+      }
+
+      const fnCount = fileSnippet.uncoveredFunctions.length;
+      let result: Awaited<ReturnType<typeof generationService.generateForFile>>;
+      try {
+        result = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Covergeist: Generating tests for ${fnCount} uncovered function${fnCount === 1 ? '' : 's'}…`,
+            cancellable: false,
+          },
+          () => generationService.generateForFile(fileSnippet),
+        );
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Covergeist: Unexpected error — ${(err as Error).message}`,
+        );
+        return;
+      }
+
+      if (!result) return;
+
+      const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
+      if (!workspaceRoot) return;
+
+      // replace=true: file-level generation always writes a fresh complete test file
+      await diffService.showDiff(workspaceRoot, result.test, result.suggestedTestFilePath, true);
+      void quotaService.refresh();
+    },
+  );
+
   const debugSubCommand = vscode.commands.registerCommand('covergeist.debugSubscription', async () => {
     const channel = vscode.window.createOutputChannel('Covergeist Diagnostics');
     channel.show();
@@ -134,6 +205,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     diffService,
     runScanCommand,
     generateTestCommand,
+    generateFileTestsCommand,
     generateTestCodeActionProvider,
     signInCommand,
     signOutCommand,

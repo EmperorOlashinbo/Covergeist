@@ -20,6 +20,19 @@ export interface CodeSnippet {
   relativeFilePath: string;
 }
 
+export interface UncoveredFunction {
+  name: string;
+  code: string;
+}
+
+export interface FileSnippet {
+  language: string;
+  runner: TestRunner;
+  relativeFilePath: string;
+  uncoveredFunctions: UncoveredFunction[];
+  contextCode: string;
+}
+
 export interface LanguageAdapter {
   readonly id: string;
   readonly displayName: string;
@@ -28,5 +41,6 @@ export interface LanguageAdapter {
   analyzeStatically(projectRoot: string): Promise<CoverageMap>;
   detectRunner(projectRoot: string): Promise<TestRunner | null>;
   extractSnippet(document: vscode.TextDocument, range: vscode.Range): Promise<CodeSnippet>;
+  extractFileSnippet(document: vscode.TextDocument, fileCoverage: FileCoverage): Promise<FileSnippet | null>;
   resolveTestFilePath(sourceFilePath: string, projectRoot: string): string;
 }
